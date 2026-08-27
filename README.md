@@ -14,7 +14,7 @@ Not every token is a parameter. A token becomes parameter-like when it is optimi
 
 ## Status
 
-Research preview. The first DSH-native formal-proof Bundle is implemented on the `0.1.1-rc.2` public extension APIs. It provides isolated parallel provers, verifier-gated Git checkpoints, agentic group-relative reflection, declaration-level consolidation, durable run evidence, and final white-box review. APIs and experimental protocols will change.
+Research preview. The first DSH-native formal-proof system is now a workspace of independent Core, Formal, Lean, Tool, and Bundle packages targeting the `0.1.1-rc.2` public extension APIs. It provides isolated parallel provers, verifier-gated Git checkpoints, a replaceable token Optimizer, declaration-level consolidation, durable run evidence, and final white-box review.
 
 ## Research question
 
@@ -23,6 +23,7 @@ Given fixed model weights, can a verifier-guided optimizer update persistent tex
 ## Implemented first slice
 
 - DSH-native orchestration over the official Code Agent and Agent Loop.
+- A `packages/core/optimization` kernel with versioned token parameters, structured evaluations, semantic updates, and a replaceable Optimizer registry.
 - Parallel, isolated reasoning trajectories with persistent run identity.
 - Verifier-gated trusted progress and reward-hacking defenses.
 - Comparative reflection as a directional textual update.
@@ -38,14 +39,14 @@ Prerequisites: Node.js `^22.19` or `>=24`, DSH `0.1.1-rc.2`, Git, and a Lean pro
 ```bash
 npm ci
 npm run check
-npm pack
-dsh plugin --profile web add ./tokens-as-parameters-dsh-formal-proof-0.1.0.tgz
+npm run pack:local
+dsh plugin --profile web add ./tokens-as-parameters-*.tgz
 dsh web
 ```
 
 In a DSH Code Agent conversation, ask it to call `proof_run_start` with the path to a Git-versioned case containing `case.json`. The official DSH session UI remains the trajectory surface; the Bundle additionally persists `run.json` and `events.jsonl` for every run.
 
-See [the Bundle guide](packages/dsh-formal-proof/README.md), [architecture](docs/en/architecture/dsh-formal-proof-bundle.md), and [FDIV reproduction protocol](experiments/fdiv-reproduction/README.md).
+See the [Core architecture and Optimizer provider contract](docs/en/architecture/token-optimization-core.md), [Bundle guide](packages/bundle/formal-proof/README.md), [formal architecture](docs/en/architecture/dsh-formal-proof-bundle.md), and [FDIV reproduction protocol](experiments/fdiv-reproduction/README.md).
 
 ## Next research work
 

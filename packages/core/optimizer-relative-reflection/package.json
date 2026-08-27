@@ -1,0 +1,24 @@
+{
+  "name": "@tokens-as-parameters/optimizer-relative-reflection",
+  "version": "0.1.0",
+  "description": "Agentic group-relative semantic optimizer for token parameters",
+  "publishConfig": { "access": "public" },
+  "repository": { "type": "git", "url": "git+https://github.com/BruceLoveLee000/tokens-as-parameters.git", "directory": "packages/core/optimizer-relative-reflection" },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" }, "./package.json": "./package.json" },
+  "files": ["lib"],
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@tokens-as-parameters/core-optimization": "0.1.0",
+    "@tokens-as-parameters/core-telemetry": "0.1.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-agent": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.1-rc.2"
+  }
+}

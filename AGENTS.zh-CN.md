@@ -19,7 +19,7 @@
 
 ## 当前仓库状态
 
-仓库当前包含一个 npm/TypeScript DSH Bundle，目标 DSH 版本为 `0.1.1-rc.2`。使用 Node.js `^22.19` 或 `>=24`。
+仓库当前是由独立 Core、Formal、Lean、Tool 与 Bundle Package 组成的 npm/TypeScript Workspace，目标 DSH 版本为 `0.1.1-rc.2`。`packages/core/optimization` 拥有 Token Optimizer 接口；Bundle 只负责组合，不承载领域实现。使用 Node.js `^22.19` 或 `>=24`。
 
 以下仓库命令已经成功执行：
 
@@ -46,6 +46,8 @@ npm run pack:check
 ## 架构规则
 
 - 科研领域契约和状态转移必须独立于 DeepSeek Harness API。
+- `packages/core/` 必须独立于 Formal、Lean、Chips 与 Benchmark Package，依赖只能从领域层指向 Core。
+- 可替换优化算法必须通过 `ctx.optimization` 注册；Formal Runtime 按稳定 ID 选择算法，不能直接导入具体 Optimizer。
 - 通过 DSH 公开的 Plugin、Service、Event、Tool 和 Agent Preset 完成集成。
 - 除非通过 ADR 证明公开扩展点无法满足需求，否则不得 Fork 或修改 DSH 官方 Agent Loop。
 - 在满足需求时，复用 DSH 官方 Code Agent、Session Log、工具执行、上下文管理和 Trajectory UI。

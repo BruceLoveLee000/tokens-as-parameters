@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { sessionTokens, sessionUsage } from '../packages/dsh-formal-proof/src/session-utils.js'
+import { sessionTokens, sessionUsage } from '@tokens-as-parameters/core-telemetry'
 
 test('token accounting preserves input, output, cache, and reasoning dimensions', () => {
   const events = [{

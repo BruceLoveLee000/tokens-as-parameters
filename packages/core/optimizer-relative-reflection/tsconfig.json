@@ -1,0 +1,6 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib", "tsBuildInfoFile": "../../../.build/optimizer-relative-reflection.tsbuildinfo" },
+  "include": ["src/**/*.ts"],
+  "references": [{ "path": "../optimization" }, { "path": "../telemetry" }]
+}

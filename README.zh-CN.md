@@ -14,7 +14,7 @@ Tokens as Parameters 是一个实验性研究系统，用于验证：经过证�
 
 ## 状态
 
-研究预览版。第一套 DSH 原生形式化证明 Bundle 已基于 `0.1.1-rc.2` 的公开扩展接口实现，包含隔离的并行 Prover、Verifier 门控的 Git Checkpoint、Agentic 组间相对反思、声明级语义合并、持久 Run 证据以及最终白盒审查。API 和实验协议仍会变化。
+研究预览版。第一套 DSH 原生形式化证明系统已经重构为相互独立的 Core、Formal、Lean、Tool 与 Bundle Workspace Package，目标是 DSH `0.1.1-rc.2` 公开扩展接口。系统包含隔离的并行 Prover、Verifier 门控的 Git Checkpoint、可替换的 Token Optimizer、声明级语义合并、持久 Run 证据以及最终白盒审查。
 
 ## 核心研究问题
 
@@ -23,6 +23,7 @@ Tokens as Parameters 是一个实验性研究系统，用于验证：经过证�
 ## 已实现的第一阶段
 
 - 基于 DSH 官方 Code Agent 和 Agent Loop 的原生编排；
+- `packages/core/optimization` 内核，提供版本化 Token Parameter、结构化 Evaluation、语义更新与可替换 Optimizer 注册中心；
 - 多路隔离推理轨迹与持久 Run 身份；
 - Verifier 门控的受信进度和 reward hacking 防御；
 - 作为方向性文本更新的跨轨迹反思；
@@ -38,14 +39,14 @@ Bundle 不会重复实现 Code Agent、Agent Loop、对话 UI、Shell、文件�
 ```bash
 npm ci
 npm run check
-npm pack
-dsh plugin --profile web add ./tokens-as-parameters-dsh-formal-proof-0.1.0.tgz
+npm run pack:local
+dsh plugin --profile web add ./tokens-as-parameters-*.tgz
 dsh web
 ```
 
 在 DSH Code Agent 对话中，让 Agent 使用 `proof_run_start`，并传入包含 `case.json` 的 Git 版本化 Case 路径。官方 DSH Session UI 继续承担轨迹展示；Bundle 还会为每个 Run 持久化 `run.json` 与 `events.jsonl`。
 
-进一步阅读：[Bundle 指南](packages/dsh-formal-proof/README.zh-CN.md)、[架构说明](docs/zh-CN/architecture/dsh-formal-proof-bundle.md)和 [FDIV 复现实验协议](experiments/fdiv-reproduction/README.zh-CN.md)。
+进一步阅读：[Core 架构与 Optimizer Provider 契约](docs/zh-CN/architecture/token-optimization-core.md)、[Bundle 指南](packages/bundle/formal-proof/README.zh-CN.md)、[形式化证明架构](docs/zh-CN/architecture/dsh-formal-proof-bundle.md)和 [FDIV 复现实验协议](experiments/fdiv-reproduction/README.zh-CN.md)。
 
 ## 下一步研究工作
 

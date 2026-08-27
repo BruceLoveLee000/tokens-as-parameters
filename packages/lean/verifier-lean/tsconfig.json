@@ -1,0 +1,10 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib", "tsBuildInfoFile": "../../../.build/verifier-lean.tsbuildinfo" },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../../core/state-git" },
+    { "path": "../../formal/proof-contracts" },
+    { "path": "../../formal/proof-verification" }
+  ]
+}

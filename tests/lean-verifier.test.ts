@@ -3,9 +3,9 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import type { CaseManifest, CommandReceipt } from '../packages/dsh-formal-proof/src/contracts.js'
-import { hashFile, type ResolvedCase } from '../packages/dsh-formal-proof/src/case-manifest.js'
-import type { CommandRunner, CommandSpec } from '../packages/dsh-formal-proof/src/command-runner.js'
+import type { CaseManifest } from '@tokens-as-parameters/proof-contracts'
+import { hashFile, type ResolvedCase } from '@tokens-as-parameters/proof-contracts/case-manifest'
+import type { CommandReceipt, CommandRunner, CommandSpec } from '@tokens-as-parameters/core-state-git'
 import {
   LeanVerifier,
   declarationSources,
@@ -15,7 +15,7 @@ import {
   proofHygiene,
   stripLeanComments,
   theoremSignatureSha256,
-} from '../packages/dsh-formal-proof/src/lean-verifier.js'
+} from '@tokens-as-parameters/verifier-lean'
 
 class FakeRunner implements CommandRunner {
   readonly calls: CommandSpec[] = []

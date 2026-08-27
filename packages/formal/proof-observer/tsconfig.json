@@ -1,0 +1,6 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib", "tsBuildInfoFile": "../../../.build/proof-observer.tsbuildinfo" },
+  "include": ["src/**/*.ts"],
+  "references": [{ "path": "../proof-contracts" }]
+}

@@ -4,7 +4,7 @@
 
 ## Decision
 
-The first implementation is one installable DSH Bundle containing multiple Cordis plugins. It reuses the official Code Agent, Agent Loop, Session, filesystem/shell tools, compaction, token accounting, credentials, and Web trajectory surface. The research code owns only the formal-proof policy and evidence boundaries.
+The first implementation is one installable DSH Bundle that composes independent Core, Formal, and Lean packages. The Bundle contains only a patch manifest. It reuses the official Code Agent, Agent Loop, Session, filesystem/shell tools, compaction, token accounting, credentials, and Web trajectory surface.
 
 ```text
 Official DSH Web / Code Agent
@@ -13,9 +13,9 @@ Official DSH Web / Code Agent
             |
      ProofRunService
        /     |      \
-  Provers  Reflector  Reviewer       official DSH Sessions
+  Provers  Optimizer  Reviewer       official DSH Sessions
      |        |          |
- Git nodes  relative   veto-only
+ Git nodes semantic    veto-only
      |      update       review
      +--------+----------+
               |
@@ -26,15 +26,18 @@ Official DSH Web / Code Agent
 
 ## Plugin boundaries
 
-| Plugin | Responsibility | Must not own |
+| Package/plugin | Responsibility | Must not own |
 |---|---|---|
-| `observer` | Run snapshots and domain-event ledger linked to DSH Session events | Raw chat persistence or a replacement UI |
-| `roles` | Scoped Prover/Reviewer prompts and proof-domain tools | Agent Loop or global Code Agent tools |
-| `reflection` | Evidence exploration and one structured group-relative textual update | Proof acceptance or benchmark-specific hints |
-| `runtime` | Run state machine, worktrees, sessions, budgets, consolidation, stopping | LLM adapter, credentials, shell, filesystem, compaction |
-| `tools` | User-facing start/status/list/stop controls | A second control plane or web server |
+| `core-optimization` | Token-parameter vocabulary and Optimizer registry | Formal, Lean, or hardware semantics |
+| `optimizer-relative-reflection` | Evidence exploration and one structured group-relative textual update | Proof acceptance or benchmark-specific hints |
+| `proof-observer` | Run snapshots and domain-event ledger linked to DSH Session events | Raw chat persistence or a replacement UI |
+| `proof-verification` | Verifier registry selected by stable id | Lean implementation details or search policy |
+| `proof-roles` | Scoped Prover/Reviewer prompts and proof-domain tools | Agent Loop or global Code Agent tools |
+| `proof-runtime` | Run state machine, worktrees, sessions, budgets, consolidation, stopping | A concrete Optimizer, LLM adapter, shell, or compaction |
+| `verifier-lean` | Lean Provider for deterministic checks and declaration-level consolidation | Search policy or proof verdict from model prose |
+| `tool-proof-run` | User-facing start/status/list/stop controls | A second control plane or web server |
 
-Domain contracts, manifest parsing, Git state, and Lean verification do not require DSH boot. Adapter code depends only on public DSH packages.
+The Runtime selects an Optimizer by stable id (`relative-reflection` by default) through `ctx.optimization`; it does not import the implementation package. See the [Core architecture](token-optimization-core.md).
 
 ## State and update model
 

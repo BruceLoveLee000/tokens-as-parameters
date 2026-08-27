@@ -4,7 +4,7 @@
 
 ## 决策
 
-第一个实现版本采用一个可安装的 DSH Bundle，其中包含多个 Cordis Plugin。它复用官方 Code Agent、Agent Loop、Session、文件系统/Shell 工具、上下文压缩、Token 计量、凭据管理与 Web 轨迹界面。研究代码只负责形式化证明策略与证据信任边界。
+第一个实现版本采用一个可安装的 DSH Bundle，组装彼此独立的 Core、Formal 与 Lean Package。Bundle 自身只包含 Patch Manifest。它复用官方 Code Agent、Agent Loop、Session、文件系统/Shell 工具、上下文压缩、Token 计量、凭据管理与 Web 轨迹界面。
 
 ```text
 官方 DSH Web / Code Agent
@@ -13,9 +13,9 @@
             |
      ProofRunService
        /     |      \
-  Provers  Reflector  Reviewer       官方 DSH Sessions
+  Provers  Optimizer  Reviewer       官方 DSH Sessions
      |        |          |
- Git nodes  relative   veto-only
+ Git nodes semantic    veto-only
      |      update       review
      +--------+----------+
               |
@@ -26,15 +26,18 @@
 
 ## 插件边界
 
-| Plugin | 职责 | 不得负责 |
+| Package/Plugin | 职责 | 不得负责 |
 |---|---|---|
-| `observer` | Run Snapshot，以及关联 DSH Session Event 的领域事件账本 | 原始对话持久化或替代 UI |
-| `roles` | 作用域隔离的 Prover/Reviewer Prompt 与证明领域工具 | Agent Loop 或全局 Code Agent 工具 |
-| `reflection` | 证据探索与一次结构化组间相对文本更新 | 证明验收或 Benchmark 特定提示 |
-| `runtime` | Run 状态机、Worktree、Session、预算、合并和停止 | LLM Adapter、凭据、Shell、文件系统、上下文压缩 |
-| `tools` | 用户可见的 start/status/list/stop 控制 | 第二套控制面或 Web Server |
+| `core-optimization` | Token Parameter 词汇和 Optimizer 注册中心 | Formal、Lean 或硬件语义 |
+| `optimizer-relative-reflection` | 证据探索与一次结构化组间相对文本更新 | 证明验收或 Benchmark 特定提示 |
+| `proof-observer` | Run Snapshot，以及关联 DSH Session Event 的领域事件账本 | 原始对话持久化或替代 UI |
+| `proof-verification` | 按稳定 ID 选择的 Verifier 注册中心 | Lean 实现细节或搜索策略 |
+| `proof-roles` | 作用域隔离的 Prover/Reviewer Prompt 与证明领域工具 | Agent Loop 或全局 Code Agent 工具 |
+| `proof-runtime` | Run 状态机、Worktree、Session、预算、合并和停止 | 具体 Optimizer、LLM Adapter、Shell 或上下文压缩 |
+| `verifier-lean` | 确定性检查与声明级整合的 Lean Provider | 搜索策略或根据模型文字生成证明结论 |
+| `tool-proof-run` | 用户可见的 start/status/list/stop 控制 | 第二套控制面或 Web Server |
 
-领域契约、Manifest 解析、Git 状态和 Lean 校验不依赖 DSH 启动。适配代码只依赖 DSH 公开 Package。
+Runtime 通过 `ctx.optimization` 按稳定 ID 选择 Optimizer（默认 `relative-reflection`），不直接导入实现 Package。参见 [Core 架构](token-optimization-core.md)。
 
 ## 状态与更新模型
 

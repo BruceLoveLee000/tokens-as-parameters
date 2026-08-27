@@ -3,8 +3,8 @@ import test from 'node:test'
 import {
   CaseManifestSchema,
   StartProofRunSchema,
-  validateReflectionPlan,
-} from '../packages/dsh-formal-proof/src/contracts.js'
+} from '@tokens-as-parameters/proof-contracts'
+import { validateOptimizationPlan } from '@tokens-as-parameters/core-optimization'
 
 const HASH = 'a'.repeat(64)
 
@@ -41,10 +41,12 @@ test('run configuration supplies reproducible defaults', () => {
   assert.equal(parsed.search.rollouts, 2)
   assert.equal(parsed.search.reflection.enabled, true)
   assert.equal(parsed.search.maxCumulativeTokensPerLane, 20_000_000)
+  assert.equal(parsed.search.optimizer, 'relative-reflection')
+  assert.equal(parsed.search.verifier, 'lean')
 })
 
 test('relative reflection must cover every rollout exactly once', () => {
-  const valid = validateReflectionPlan({
+  const valid = validateOptimizationPlan({
     reflection: 'Lane one found a reusable decomposition.',
     commonPrompt: 'Preserve checker-validated progress.',
     routes: [
@@ -53,7 +55,7 @@ test('relative reflection must cover every rollout exactly once', () => {
     ],
   }, ['r1', 'r2'])
   assert.equal(valid.routes.length, 2)
-  assert.throws(() => validateReflectionPlan({
+  assert.throws(() => validateOptimizationPlan({
     reflection: 'Incomplete update.',
     commonPrompt: 'Continue.',
     routes: [{ rolloutId: 'r1', prompt: 'Continue.' }],

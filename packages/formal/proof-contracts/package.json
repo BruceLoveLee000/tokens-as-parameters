@@ -1,0 +1,22 @@
+{
+  "name": "@tokens-as-parameters/proof-contracts",
+  "version": "0.1.0",
+  "description": "Framework-neutral formal-proof case, receipt, run, and trust contracts",
+  "publishConfig": { "access": "public" },
+  "repository": { "type": "git", "url": "git+https://github.com/BruceLoveLee000/tokens-as-parameters.git", "directory": "packages/formal/proof-contracts" },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    "./case-manifest": { "types": "./lib/case-manifest.d.ts", "default": "./lib/case-manifest.js" },
+    "./package.json": "./package.json"
+  },
+  "files": ["lib"],
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@tokens-as-parameters/core-optimization": "0.1.0",
+    "@tokens-as-parameters/core-state-git": "0.1.0",
+    "zod": "4.4.3"
+  }
+}

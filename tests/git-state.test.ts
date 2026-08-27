@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import test from 'node:test'
-import type { CommandReceipt } from '../packages/dsh-formal-proof/src/contracts.js'
-import type { CommandRunner, CommandSpec } from '../packages/dsh-formal-proof/src/command-runner.js'
-import { GitState, transplantDeclarations } from '../packages/dsh-formal-proof/src/git-state.js'
+import type { CommandReceipt, CommandRunner, CommandSpec } from '@tokens-as-parameters/core-state-git'
+import { GitState } from '@tokens-as-parameters/core-state-git'
+import { transplantDeclarations } from '@tokens-as-parameters/verifier-lean'
 
 const execFileAsync = promisify(execFile)
 

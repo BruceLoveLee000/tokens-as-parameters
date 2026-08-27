@@ -1,95 +1,28 @@
 {
-  "name": "@tokens-as-parameters/dsh-formal-proof",
+  "name": "@tokens-as-parameters/root",
   "version": "0.1.0",
-  "description": "Verifier-guided long-horizon formal-proof plugins for DeepSeek Harness",
+  "private": true,
+  "description": "Inference-time token optimization plugins and formal-verification research bundles for DeepSeek Harness",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/BruceLoveLee000/tokens-as-parameters.git"
   },
-  "homepage": "https://github.com/BruceLoveLee000/tokens-as-parameters#readme",
-  "bugs": {
-    "url": "https://github.com/BruceLoveLee000/tokens-as-parameters/issues"
-  },
-  "keywords": [
-    "deepseek-harness",
-    "dsh",
-    "lean4",
-    "formal-verification",
-    "inference-time-learning",
-    "multi-agent"
-  ],
+  "license": "Apache-2.0",
   "type": "module",
-  "main": "lib/packages/dsh-formal-proof/src/index.js",
-  "types": "lib/packages/dsh-formal-proof/src/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./lib/packages/dsh-formal-proof/src/index.d.ts",
-      "default": "./lib/packages/dsh-formal-proof/src/index.js"
-    },
-    "./runtime": {
-      "types": "./lib/packages/dsh-formal-proof/src/runtime.d.ts",
-      "default": "./lib/packages/dsh-formal-proof/src/runtime.js"
-    },
-    "./tools": {
-      "types": "./lib/packages/dsh-formal-proof/src/coordinator-tools.d.ts",
-      "default": "./lib/packages/dsh-formal-proof/src/coordinator-tools.js"
-    },
-    "./roles": {
-      "types": "./lib/packages/dsh-formal-proof/src/proof-tools.d.ts",
-      "default": "./lib/packages/dsh-formal-proof/src/proof-tools.js"
-    },
-    "./reflection": {
-      "types": "./lib/packages/dsh-formal-proof/src/relative-reflection.d.ts",
-      "default": "./lib/packages/dsh-formal-proof/src/relative-reflection.js"
-    },
-    "./observer": {
-      "types": "./lib/packages/dsh-formal-proof/src/observer.d.ts",
-      "default": "./lib/packages/dsh-formal-proof/src/observer.js"
-    },
-    "./cordis.patch.yml": "./packages/dsh-formal-proof/cordis.patch.yml",
-    "./package.json": "./package.json"
-  },
-  "files": [
-    "lib/packages/dsh-formal-proof/src/**/*.js",
-    "lib/packages/dsh-formal-proof/src/**/*.d.ts",
-    "packages/dsh-formal-proof/cordis.patch.yml",
-    "packages/dsh-formal-proof/README.md",
-    "packages/dsh-formal-proof/README.zh-CN.md",
-    "README.md",
-    "README.zh-CN.md",
-    "LICENSE",
-    "NOTICE"
+  "workspaces": [
+    "packages/*/*"
   ],
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
-  "publishConfig": {
-    "access": "public"
-  },
-  "dsh": {
-    "bundle": {
-      "patch": "./packages/dsh-formal-proof/cordis.patch.yml"
-    }
-  },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test 'tests/**/*.test.ts'",
-    "check": "npm run typecheck && npm test && npm run build",
-    "pack:check": "npm pack --dry-run",
-    "prepare": "npm run build"
-  },
-  "dependencies": {
-    "zod": "4.4.3"
-  },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.1",
-    "@deepseek-ai/dsh-agent": "0.1.1-rc.2",
-    "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
-    "@deepseek-ai/dsh-session": "0.1.1-rc.2",
-    "@deepseek-ai/dsh-subprocess": "0.1.1-rc.2",
-    "@deepseek-ai/dsh-system-prompt": "0.1.1-rc.2",
-    "@deepseek-ai/dsh-tools": "0.1.1-rc.2"
+    "clean": "tsc -b --clean",
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "test": "npm run build && tsx --test 'tests/**/*.test.ts'",
+    "check": "npm run typecheck && npm test && npm run pack:check",
+    "pack:check": "npm pack --dry-run --workspaces",
+    "pack:local": "npm pack --workspaces"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
@@ -101,7 +34,7 @@
     "@deepseek-ai/dsh-tools": "0.1.1-rc.2",
     "@types/node": "22.20.0",
     "tsx": "4.22.4",
-    "typescript": "5.9.3"
-  },
-  "license": "Apache-2.0"
+    "typescript": "5.9.3",
+    "zod": "4.4.3"
+  }
 }

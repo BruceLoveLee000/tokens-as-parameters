@@ -19,7 +19,7 @@ Before changing code:
 
 ## Current Repository State
 
-The repository contains one npm/TypeScript DSH Bundle targeting DSH `0.1.1-rc.2`. Use Node.js `^22.19` or `>=24`.
+The repository is an npm/TypeScript workspace of independent Core, Formal, Lean, Tool, and Bundle packages targeting DSH `0.1.1-rc.2`. `packages/core/optimization` owns the token-optimizer seam; Bundles contain composition rather than domain implementation. Use Node.js `^22.19` or `>=24`.
 
 The following repository commands have been executed successfully:
 
@@ -46,6 +46,8 @@ Add nested `AGENTS.md` files only when a directory has development rules that ma
 ## Architecture Rules
 
 - Keep scientific domain contracts and state transitions independent from DeepSeek Harness APIs.
+- Keep `packages/core/` independent from Formal, Lean, Chips, and benchmark packages; dependencies point from domains toward Core.
+- Register replaceable optimization algorithms through `ctx.optimization`; Formal Runtime must select them by stable id rather than import a concrete Optimizer.
 - Integrate with DSH through documented plugins, services, events, tools, and agent presets.
 - Do not fork or patch the official DSH Agent Loop unless an accepted ADR demonstrates that no public extension point can meet the requirement.
 - Reuse the official DSH Code Agent, session log, tool execution, context management, and trajectory UI where they satisfy the requirement.
