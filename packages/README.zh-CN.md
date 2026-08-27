@@ -7,14 +7,14 @@ Workspace 遵循 DeepSeek Harness 的方式，按照能力领域组织独立 npm
 ```text
 packages/
 ├── core/
-│   ├── optimization/                   优化器接口与 Token 训练词汇
+│   ├── optimization/                   文本参数、反馈、更新与优化器契约
 │   ├── optimizer-relative-reflection/ 相对反思 Optimizer Provider Plugin
 │   ├── state-git/                      Git 参数与 Insight 状态
 │   └── telemetry/                      领域无关的 DSH 轨迹投影
 ├── formal/
 │   ├── proof-contracts/                Case、Receipt、Run 与信任契约
 │   ├── proof-observer/                 持久化证明事件与快照
-│   ├── proof-roles/                    Prover 与 Reviewer 角色插件
+│   ├── proof-roles/                    Formal Agent Definition 与 Prover/Reviewer 角色
 │   ├── proof-runtime/                  形式化证明 Epoch/Rollout 引擎
 │   ├── proof-verification/             Verifier Service 与 Provider 注册中心
 │   └── tool-proof-run/                 面向模型的运行控制工具

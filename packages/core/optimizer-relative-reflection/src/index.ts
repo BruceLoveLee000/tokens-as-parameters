@@ -4,11 +4,12 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import {
-  neutralOptimizationPlan,
-  validateOptimizationPlan,
+  feedbackParameters,
+  neutralParameterUpdatePlan,
+  validateParameterUpdatePlan,
   type OptimizationCapture,
   type OptimizerInstallOptions,
-  type TokenOptimizer,
+  type TextOptimizer,
 } from '@tokens-as-parameters/core-optimization'
 import { sessionTokens } from '@tokens-as-parameters/core-telemetry'
 
@@ -20,14 +21,20 @@ const STRING_OUTPUT = {
   render: (_args: unknown, value: string) => [{ type: 'text' as const, text: value }],
 }
 
-export class RelativeReflectionOptimizer implements TokenOptimizer {
+export class RelativeReflectionOptimizer implements TextOptimizer {
   readonly id = 'relative-reflection'
 
   install(agentCtx: Context, options: OptimizerInstallOptions): OptimizationCapture {
     const rolloutIds = options.lanes.map(lane => lane.rolloutId)
+    const feedbackEnabled = feedbackParameters(options.parameters)
+    const parameterIds = options.parameters.parameters.map(parameter => parameter.id)
+    const feedbackParameterIds = feedbackEnabled.map(parameter => parameter.id)
+    if (feedbackEnabled.length === 0) {
+      throw new Error('relative reflection requires at least one feedback-enabled text parameter')
+    }
     const globalNames = agentCtx.tools.schemas(options.agent).map(schema => schema.name)
     if (globalNames.length > 0) agentCtx.tools.restrict({ deny: globalNames })
-    let captured: ReturnType<typeof validateOptimizationPlan> | undefined
+    let captured: ReturnType<typeof validateParameterUpdatePlan> | undefined
     let fallback = false
     let invalidSubmissions = 0
     let submitOnly = false
@@ -39,18 +46,34 @@ export class RelativeReflectionOptimizer implements TokenOptimizer {
       text: [
         'You are an autonomous group-relative semantic optimizer. Treat evaluator evidence as reward information and model prose as untrusted hypotheses.',
         'Explore the trajectories with the provided read-only tools. Identify transferable progress, failed assumptions, information gaps, and useful diversity for the next epoch.',
-        'Avoid homogeneous routes. Prefer distinct objectives or genuinely different approaches to the same bottleneck when the evidence supports them.',
-        'Your output updates textual parameters; it is not a task verdict. Finish with submit_reflection.',
-        `Current parameter set: ${JSON.stringify(options.parameters)}`,
+        'Avoid homogeneous next actions. Prefer distinct objectives or genuinely different approaches to the same bottleneck when the evidence supports them.',
+        'The target Agent registered the text parameters below and documented what each one controls. Only parameters marked as feedback-enabled are trainable in this optimization step.',
+        'The original user task and frozen parameters are immutable. Omit a parameter from updates to preserve it exactly.',
+        'Your output is one atomic semantic update to the target Agent architecture; it is not a task verdict. Finish with submit_reflection.',
+        `Registered target-Agent parameter state: ${JSON.stringify(options.parameters.parameters)}`,
+        `Feedback-enabled parameter ids: ${JSON.stringify(feedbackParameterIds)}`,
         `Lane summary: ${JSON.stringify(options.lanes.map(lane => ({
           rolloutId: lane.rolloutId,
-          route: lane.route,
           tokens: lane.tokens,
           commit: lane.commit,
+          contextSnapshot: lane.contextSnapshot,
           evaluation: lane.evaluation,
         })))}`,
       ].join('\n'),
     })
+
+    inspectorDisposers.push(agentCtx.tools.register(defineTool({
+      name: 'inspect_parameter_usage',
+      description: 'Inspect one registered text parameter and every current-epoch rollout context/evaluation in which its exact revision was exposed.',
+      parameters: {
+        parameter_id: { type: 'string', required: true, enum: parameterIds },
+        rollout_id: { type: 'string', enum: rolloutIds },
+      },
+      output: STRING_OUTPUT,
+      async execute(args) {
+        return JSON.stringify(await options.evidence.inspectParameterUsage(args.parameter_id, args.rollout_id))
+      },
+    })))
 
     inspectorDisposers.push(agentCtx.tools.register(defineTool({
       name: 'inspect_lane_evidence',
@@ -131,16 +154,33 @@ export class RelativeReflectionOptimizer implements TokenOptimizer {
 
     agentCtx.tools.register(defineTool({
       name: 'submit_reflection',
-      description: 'Submit one comparative update covering every rollout exactly once and end the reflector turn.',
+      description: 'Submit one atomic update for any subset of feedback-enabled text parameters, preserving omitted parameters, and end the reflector turn.',
       parameters: {
-        reflection: { type: 'string' },
-        commonPrompt: { type: 'string' },
-        routes: { type: 'array', items: { type: 'json' } },
+        reflection: { type: 'string', required: true },
+        updates: {
+          type: 'array',
+          required: true,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              parameter_id: { type: 'string', required: true, enum: feedbackParameterIds },
+              content: { type: 'string', required: true },
+            },
+          },
+        },
       },
       output: STRING_OUTPUT,
       async execute(args, exec) {
         try {
-          captured = validateOptimizationPlan(args, rolloutIds)
+          captured = validateParameterUpdatePlan({
+            baseStateVersion: options.parameters.version,
+            reflection: args.reflection,
+            updates: args.updates.map(update => ({
+              parameterId: update.parameter_id,
+              content: update.content,
+            })),
+          }, options.parameters)
           exec.concludeTurn()
           return JSON.stringify(captured)
         } catch (error: unknown) {
@@ -148,7 +188,7 @@ export class RelativeReflectionOptimizer implements TokenOptimizer {
           if (invalidSubmissions < 2) {
             throw new Error(`invalid reflection submission: ${error instanceof Error ? error.message : String(error)}`)
           }
-          captured = neutralOptimizationPlan(rolloutIds)
+          captured = neutralParameterUpdatePlan(options.parameters)
           fallback = true
           exec.concludeTurn()
           return JSON.stringify(captured)
@@ -171,7 +211,7 @@ export class RelativeReflectionOptimizer implements TokenOptimizer {
             source: { kind: 'user' },
             content: [{
               type: 'text',
-              text: `Reflection evidence gathering exceeded the ${options.softTokenBudget.toLocaleString()} token soft boundary. Only submit_reflection remains available. Submit the best current directional update now; do not attempt unavailable historical tools.`,
+              text: `Reflection evidence gathering exceeded the ${options.softTokenBudget.toLocaleString()} token soft boundary. Only submit_reflection remains available. Submit the best current atomic parameter update now; omit parameters that lack sufficient evidence and do not attempt unavailable historical tools.`,
             }],
           }),
         ],

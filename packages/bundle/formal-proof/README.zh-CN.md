@@ -31,7 +31,7 @@ dsh web
 
 Package Manifest 中的 `dsh.bundle.patch` 会组合八个运行时插件：
 
-- `core-optimization`：稳定的 Token Optimizer 注册中心和契约；
+- `core-optimization`：领域无关的文本参数、暴露、反馈、原子更新与 Optimizer 注册契约；
 - `optimizer-relative-reflection`：可替换的组间相对语义 Optimizer；
 - `proof-observer`：持久化领域事件账本与 Run Snapshot；
 - `proof-verification`：稳定的 Verifier 注册中心；
@@ -86,8 +86,12 @@ Reflector 是自主规划的 DSH Agent，而不是一次性摘要调用。默认
 
 比较完成后，Controller 会创建一个多 Parent Reflection Commit：Tree 从受信证明开始，Parent 记录所有已消费的 Lane Tip。该节点成为下一 Epoch 的 `searchBaseCommit`，但不会虚增 `trustedCommit`，也不会带入未验证 Proof Tree。
 
-超过反思 Soft Token 边界后，检查工具会被移除，并通过当前 Step 的消息要求 Agent 调用 `submit_reflection`。合法提交会结束 Turn；第二次非法提交将退化为中性更新。反思包含一条公共方向和每个 Rollout 各一条路线，但不会硬编码定理分工或 FDIV 特定证明提示。
+Formal Prover Agent 注册 `task.memory`、`task.plan` 以及每个 Rollout 的 `lane.<id>.route`；是否接受反馈由 Agent 实例化时选择，而不是硬编码在 Core 中。每个 Session 都记录自己消费的精确 Revision。Reflector 可以检查参数使用、轨迹与 Git 证据，再原子替换有证据支撑的任意参数子集，并保留省略参数。
+
+`proof_run_start` 通过 `feedback_memory`、`feedback_plan` 与 `feedback_routes` 暴露该实验边界。启用反思时至少要开放其中一类参数。
+
+超过反思 Soft Token 边界后，检查工具会被移除，并通过当前 Step 的消息要求 Agent 调用 `submit_reflection`。合法提交会结束 Turn；第二次非法提交将退化为中性更新。Core 与通用 Bundle 都不会硬编码定理分工或 FDIV 特定证明提示。
 
 ## 当前限制
 
-打包后的机制已经具备单元测试与契约测试，但历史 FDIV 14/14 结果尚未通过这个 Bundle 重新运行。必须遵循版本化的[复现实验协议](../../../experiments/fdiv-reproduction/README.zh-CN.md)；在证据门完成前，不得把旧结果表述为 Bundle 已复现。
+打包后的机制已经具备单元测试与契约测试，但历史 FDIV 14/14 结果尚未通过这个 Bundle 重新运行。必须遵循版本化的[复现实验协议](../../../experiments/fdiv-reproduction/README.zh-CN.md)，并阅读[能力回退审查](../../../docs/zh-CN/architecture/fdiv-capability-review.md)；在证据门完成前，不得把旧结果表述为 Bundle 已复现。

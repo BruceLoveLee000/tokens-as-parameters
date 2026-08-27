@@ -1,7 +1,11 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { CommandRunner } from './command-runner.js'
-import type { OptimizationPlan, StateNode } from '@tokens-as-parameters/core-optimization'
+import type {
+  ParameterUpdatePlan,
+  StateNode,
+  TextParameterState,
+} from '@tokens-as-parameters/core-optimization'
 
 export { DshCommandRunner } from './command-runner.js'
 export type { CommandReceipt, CommandRunner, CommandSpec } from './command-runner.js'
@@ -161,7 +165,8 @@ export class GitState {
     epoch: number,
     trustedCommit: string,
     laneCommits: readonly string[],
-    plan: OptimizationPlan,
+    plan: ParameterUpdatePlan,
+    parameterState: TextParameterState,
     signal?: AbortSignal,
   ): Promise<{ commit: string; path: string }> {
     const path = join('.tokens-as-parameters', 'reflections', `epoch-${epoch}.md`)
@@ -174,22 +179,30 @@ export class GitState {
       `createdAt: ${new Date().toISOString()}`,
       `trustedProofCommit: ${trustedCommit}`,
       `laneCommits: [${laneCommits.join(', ')}]`,
+      `baseParameterState: ${plan.baseStateVersion}`,
+      `nextParameterState: ${parameterState.version}`,
       '---',
       '',
       '# Comparative reflection',
       '',
       plan.reflection.trim(),
       '',
-      '## Common update',
+      '## Atomic parameter updates',
       '',
-      plan.commonPrompt.trim(),
+      ...(plan.updates.length === 0
+        ? ['No parameter content changed.', '']
+        : plan.updates.flatMap(update => [
+            `### ${update.parameterId}`,
+            '',
+            update.content.trim(),
+            '',
+          ])),
+      '## Active parameter state',
       '',
-      '## Routes',
-      '',
-      ...plan.routes.flatMap(route => [
-        `### ${route.rolloutId}`,
+      ...parameterState.parameters.flatMap(parameter => [
+        `### ${parameter.id} @ ${parameter.revision}${parameter.requiresFeedback ? '' : ' (frozen)'}`,
         '',
-        route.prompt.trim(),
+        parameter.content.trim(),
         '',
       ]),
     ].join('\n'), 'utf8')

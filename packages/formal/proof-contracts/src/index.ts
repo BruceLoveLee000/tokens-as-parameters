@@ -1,8 +1,20 @@
 import { z } from 'zod'
-import type { OptimizationPlan, TokenUsageSummary, TraceEntry } from '@tokens-as-parameters/core-optimization'
+import type {
+  ParameterUpdatePlan,
+  TextParameterContextSnapshot,
+  TextParameterState,
+  TokenUsageSummary,
+  TraceEntry,
+} from '@tokens-as-parameters/core-optimization'
 import type { CommandReceipt } from '@tokens-as-parameters/core-state-git'
 
-export type { OptimizationPlan, TokenUsageSummary, TraceEntry } from '@tokens-as-parameters/core-optimization'
+export type {
+  ParameterUpdatePlan,
+  TextParameterContextSnapshot,
+  TextParameterState,
+  TokenUsageSummary,
+  TraceEntry,
+} from '@tokens-as-parameters/core-optimization'
 export type { CommandReceipt } from '@tokens-as-parameters/core-state-git'
 
 export const CASE_SCHEMA_VERSION = '1.0' as const
@@ -82,6 +94,11 @@ export const ProofSearchConfigSchema = z.object({
   maxCumulativeTokensPerLane: z.number().int().min(10_000).max(100_000_000).default(20_000_000),
   totalTokenBudget: z.number().int().min(10_000).max(1_000_000_000).default(300_000_000),
   maxWallTimeSeconds: z.number().int().min(60).max(604_800).default(43_200),
+  parameterFeedback: z.object({
+    memory: z.boolean().default(true),
+    plan: z.boolean().default(true),
+    routes: z.boolean().default(true),
+  }).default({ memory: true, plan: true, routes: true }),
   reflection: z.object({
     enabled: z.boolean().default(true),
     softTokenBudget: z.number().int().min(10_000).max(10_000_000).default(500_000),
@@ -92,6 +109,14 @@ export const ProofSearchConfigSchema = z.object({
     maxOutputTokensPerRequest: 64_000,
   }),
   whiteboxReview: z.boolean().default(true),
+}).superRefine((value, context) => {
+  if (value.reflection.enabled && !Object.values(value.parameterFeedback).some(Boolean)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['parameterFeedback'],
+      message: 'reflection requires at least one feedback-enabled Formal Prover text parameter',
+    })
+  }
 })
 
 export type ProofSearchConfig = z.infer<typeof ProofSearchConfigSchema>
@@ -112,6 +137,7 @@ export const StartProofRunSchema = z.object({
     maxCumulativeTokensPerLane: 20_000_000,
     totalTokenBudget: 300_000_000,
     maxWallTimeSeconds: 43_200,
+    parameterFeedback: { memory: true, plan: true, routes: true },
     reflection: {
       enabled: true,
       softTokenBudget: 500_000,
@@ -153,8 +179,19 @@ export interface ProofReceipt {
   obligationsTotal: number
   closedObligations: string[]
   openObligations: string[]
+  verifiedDeclarations: string[]
+  checkpointDeclarations: string[]
   findings: ProofHygieneFinding[]
   obligationAxiomAudit?: {
+    command: CommandReceipt
+    accepted: string[]
+    rejected: Array<{
+      name: string
+      observed: string[]
+      forbidden: string[]
+    }>
+  }
+  checkpointAxiomAudit?: {
     command: CommandReceipt
     accepted: string[]
     rejected: Array<{
@@ -177,6 +214,7 @@ export interface LaneEvidence {
   sessionId: string
   epoch: number
   route: string
+  contextSnapshot: TextParameterContextSnapshot
   commit?: string
   tokens: number
   tokenUsage: TokenUsageSummary
@@ -210,7 +248,8 @@ export interface ProofRunSnapshot {
   tokenUsage: TokenUsageSummary
   activeSessionIds: string[]
   lanes: LaneEvidence[]
-  latestReflection?: OptimizationPlan
+  parameterState: TextParameterState
+  latestReflection?: ParameterUpdatePlan
   finalReceipt?: ProofReceipt
   whiteboxReview?: WhiteboxReview
   stopReason?: string

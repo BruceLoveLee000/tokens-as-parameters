@@ -15,6 +15,7 @@ import {
   proofHygiene,
   stripLeanComments,
   theoremSignatureSha256,
+  transplantDeclarations,
 } from '@tokens-as-parameters/verifier-lean'
 
 class FakeRunner implements CommandRunner {
@@ -24,18 +25,20 @@ class FakeRunner implements CommandRunner {
     private readonly buildExitCode = 0,
     private readonly axiomOutput = "'helper' does not depend on any axioms\n'top' does not depend on any axioms",
     private readonly changedPaths = '',
+    private readonly baselineProof?: string,
   ) {}
 
   async run(spec: CommandSpec): Promise<CommandReceipt> {
     this.calls.push(spec)
     const audit = spec.argv.includes('lean')
     const changed = spec.argv[0] === 'git' && spec.argv[1] === 'diff'
+    const show = spec.argv[0] === 'git' && spec.argv[1] === 'show'
     return {
       argv: [...spec.argv],
       cwd: spec.cwd,
-      exitCode: audit ? 0 : this.buildExitCode,
+      exitCode: show && this.baselineProof === undefined ? 1 : audit || show ? 0 : this.buildExitCode,
       signal: null,
-      stdout: audit ? this.axiomOutput : changed ? this.changedPaths : '',
+      stdout: audit ? this.axiomOutput : changed ? this.changedPaths : show ? this.baselineProof ?? '' : '',
       stderr: '',
       stdoutTruncated: false,
       stderrTruncated: false,
@@ -154,4 +157,39 @@ test('candidate changes outside the declared editable surface are rejected', asy
   const receipt = await new LeanVerifier(runner).check(resolved, root, 0, undefined, 'deadbeef')
   assert.equal(receipt.finalAccepted, false)
   assert.equal(receipt.findings.some(finding => finding.kind === 'unauthorized-change'), true)
+})
+
+test('checker-clean helper-only progress is checkpointable and semantically transplantable', async () => {
+  const { root, resolved } = await fixture()
+  const baselineProof = [
+    'import Spec',
+    '',
+    'theorem helper : True := by',
+    '  trivial',
+    '',
+    'theorem top : True := by',
+    '  sorry',
+    '',
+  ].join('\n')
+  const candidateProof = baselineProof.replace(
+    'theorem top : True := by',
+    'theorem bridge : True := by\n  exact helper\n\ntheorem top : True := by',
+  )
+  await writeFile(join(root, 'formal', 'Proof.lean'), candidateProof, 'utf8')
+  resolved.manifest.lean.theoremSignatureSha256 = theoremSignatureSha256(candidateProof, 'top')
+  const runner = new FakeRunner(
+    0,
+    "'helper' does not depend on any axioms\n'bridge' does not depend on any axioms",
+    'formal/Proof.lean\n',
+    baselineProof,
+  )
+  const receipt = await new LeanVerifier(runner).check(resolved, root, 1, undefined, 'deadbeef')
+  assert.equal(receipt.obligationsClosed, 1)
+  assert.equal(receipt.checkpointable, true)
+  assert.deepEqual(receipt.checkpointDeclarations, ['bridge'])
+
+  const merged = transplantDeclarations(baselineProof, candidateProof, receipt.checkpointDeclarations)
+  assert.equal(merged.includes('theorem bridge : True := by\n  exact helper'), true)
+  assert.equal(merged.indexOf('theorem bridge'), merged.lastIndexOf('theorem bridge'))
+  assert.equal(merged.indexOf('theorem bridge') < merged.indexOf('theorem top'), true)
 })

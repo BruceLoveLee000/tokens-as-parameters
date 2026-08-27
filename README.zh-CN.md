@@ -23,7 +23,7 @@ Tokens as Parameters 是一个实验性研究系统，用于验证：经过证�
 ## 已实现的第一阶段
 
 - 基于 DSH 官方 Code Agent 和 Agent Loop 的原生编排；
-- `packages/core/optimization` 内核，提供版本化 Token Parameter、结构化 Evaluation、语义更新与可替换 Optimizer 注册中心；
+- `packages/core/optimization` 内核：领域 Agent 注册版本化文本参数，逐实例选择是否接受反馈，记录精确上下文暴露，并接收可替换 Optimizer 的原子语义更新；
 - 多路隔离推理轨迹与持久 Run 身份；
 - Verifier 门控的受信进度和 reward hacking 防御；
 - 作为方向性文本更新的跨轨迹反思；

@@ -234,6 +234,25 @@ export class LeanVerifier implements ProofVerifier {
       })
     }
     const syntacticStatus = obligationStatus(proofSource, manifest.lean.obligations)
+    const declarations = declarationSources(proofSource)
+    let checkpointCandidates: string[] = []
+    if (baselineCommit !== undefined) {
+      const baselineProof = await this.proofAtCommit(
+        worktree,
+        baselineCommit,
+        manifest.lean.proofFile,
+        signal,
+      )
+      if (baselineProof !== undefined) {
+        const baselineDeclarations = declarationSources(baselineProof)
+        const obligations = new Set(manifest.lean.obligations)
+        checkpointCandidates = [...declarations.values()]
+          .filter(declaration => !obligations.has(declaration.name))
+          .filter(declaration => !/\bsorry\b/.test(stripLeanComments(declaration.source)))
+          .filter(declaration => baselineDeclarations.get(declaration.name)?.source !== declaration.source)
+          .map(declaration => declaration.name)
+      }
+    }
     const build = await this.runner.run({
       argv: manifest.lean.buildArgv,
       cwd: resolve(worktree, manifest.lean.workingDirectory),
@@ -252,27 +271,50 @@ export class LeanVerifier implements ProofVerifier {
         ? false
         : !['admit', 'axiom', 'unsafe', 'signature', 'locked-input', 'unauthorized-change'].includes(finding.kind))
     let obligationAxiomAudit: ProofReceipt['obligationAxiomAudit']
+    let checkpointAxiomAudit: ProofReceipt['checkpointAxiomAudit']
     let axiomAudit: ProofReceipt['axiomAudit']
     let closedObligations: string[] = []
-    if (structurallyAcceptable && syntacticStatus.closed.length > 0) {
-      const audit = await this.auditDeclarations(resolvedCase, worktree, syntacticStatus.closed, signal)
+    let verifiedDeclarations: string[] = []
+    let checkpointDeclarations: string[] = []
+    const auditNames = [...new Set([...syntacticStatus.closed, ...checkpointCandidates])]
+    if (structurallyAcceptable && auditNames.length > 0) {
+      const audit = await this.auditDeclarations(resolvedCase, worktree, auditNames, signal)
       const allowed = new Set(manifest.lean.allowedAxioms)
       const accepted: string[] = []
       const rejected: NonNullable<ProofReceipt['obligationAxiomAudit']>['rejected'] = []
-      for (const name of syntacticStatus.closed) {
+      for (const name of auditNames) {
         const observed = audit.observed.get(name)
         const forbidden = observed?.filter(axiom => !allowed.has(axiom)) ?? ['audit-result-missing']
         if (audit.command.exitCode === 0 && forbidden.length === 0) accepted.push(name)
         else rejected.push({ name, observed: observed ?? [], forbidden })
       }
-      obligationAxiomAudit = { command: audit.command, accepted, rejected }
-      closedObligations = accepted
-      if (audit.command.exitCode !== 0 || rejected.length > 0) {
+      const obligationSet = new Set(syntacticStatus.closed)
+      const checkpointSet = new Set(checkpointCandidates)
+      const acceptedObligations = accepted.filter(name => obligationSet.has(name))
+      const rejectedObligations = rejected.filter(item => obligationSet.has(item.name))
+      const acceptedCheckpoints = accepted.filter(name => checkpointSet.has(name))
+      const rejectedCheckpoints = rejected.filter(item => checkpointSet.has(item.name))
+      obligationAxiomAudit = {
+        command: audit.command,
+        accepted: acceptedObligations,
+        rejected: rejectedObligations,
+      }
+      if (checkpointCandidates.length > 0) {
+        checkpointAxiomAudit = {
+          command: audit.command,
+          accepted: acceptedCheckpoints,
+          rejected: rejectedCheckpoints,
+        }
+      }
+      closedObligations = acceptedObligations
+      checkpointDeclarations = acceptedCheckpoints
+      verifiedDeclarations = accepted
+      if (audit.command.exitCode !== 0 || rejectedObligations.length > 0) {
         findings.push({
           kind: 'axiom-audit',
           message: audit.command.exitCode !== 0
             ? 'Lean obligation axiom audit failed to run'
-            : `obligations with forbidden or missing axiom evidence: ${rejected.map(item => item.name).join(', ')}`,
+            : `obligations with forbidden or missing axiom evidence: ${rejectedObligations.map(item => item.name).join(', ')}`,
         })
       }
       if (syntacticStatus.open.length === 0) {
@@ -285,9 +327,11 @@ export class LeanVerifier implements ProofVerifier {
       }
     }
     const openObligations = manifest.lean.obligations.filter(name => !closedObligations.includes(name))
-    const checkpointable = structurallyAcceptable && closedObligations.length > baselineClosed
+    const checkpointable = structurallyAcceptable
+      && (closedObligations.length > baselineClosed || checkpointDeclarations.length > 0)
     const finalAccepted = structurallyAcceptable
       && openObligations.length === 0
+      && !/\bsorry\b/.test(stripLeanComments(proofSource))
       && axiomAudit !== undefined
       && axiomAudit.command.exitCode === 0
       && axiomAudit.forbidden.length === 0
@@ -304,12 +348,31 @@ export class LeanVerifier implements ProofVerifier {
       obligationsTotal: manifest.lean.obligations.length,
       closedObligations,
       openObligations,
+      verifiedDeclarations,
+      checkpointDeclarations,
       findings,
       ...(obligationAxiomAudit === undefined ? {} : { obligationAxiomAudit }),
+      ...(checkpointAxiomAudit === undefined ? {} : { checkpointAxiomAudit }),
       ...(axiomAudit === undefined ? {} : { axiomAudit }),
       checkpointable,
       finalAccepted,
     }
+  }
+
+  private async proofAtCommit(
+    worktree: string,
+    commit: string,
+    proofPath: string,
+    signal?: AbortSignal,
+  ): Promise<string | undefined> {
+    const receipt = await this.runner.run({
+      argv: ['git', 'show', `${commit}:${proofPath}`],
+      cwd: worktree,
+      timeoutMs: 60_000,
+      maxOutputBytes: 8_000_000,
+      ...(signal === undefined ? {} : { signal }),
+    })
+    return receipt.exitCode === 0 && receipt.signal === null ? receipt.stdout : undefined
   }
 
   private async changedPathsSince(
@@ -381,11 +444,23 @@ export function transplantDeclarations(
   names: readonly string[],
 ): string {
   let output = baseSource
+  const candidateDeclarations = [...declarationSources(candidateSource).values()]
   for (const name of names) {
     const base = declarationSources(output).get(name)
     const candidate = declarationSources(candidateSource).get(name)
-    if (base === undefined || candidate === undefined) continue
-    output = `${output.slice(0, base.start)}${candidate.source}\n\n${output.slice(base.end).replace(/^\s+/, '')}`
+    if (candidate === undefined) continue
+    if (base !== undefined) {
+      output = `${output.slice(0, base.start)}${candidate.source}\n\n${output.slice(base.end).replace(/^\s+/, '')}`
+      continue
+    }
+    const nextCandidate = candidateDeclarations.find(declaration => (
+      declaration.start > candidate.start && declarationSources(output).has(declaration.name)
+    ))
+    const insertion = nextCandidate === undefined
+      ? output.length
+      : declarationSources(output).get(nextCandidate.name)?.start ?? output.length
+    const separator = insertion === output.length && !output.endsWith('\n') ? '\n\n' : ''
+    output = `${output.slice(0, insertion)}${separator}${candidate.source}\n\n${output.slice(insertion).replace(/^\s+/, '')}`
   }
   return output
 }

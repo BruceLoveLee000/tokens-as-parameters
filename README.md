@@ -23,7 +23,7 @@ Given fixed model weights, can a verifier-guided optimizer update persistent tex
 ## Implemented first slice
 
 - DSH-native orchestration over the official Code Agent and Agent Loop.
-- A `packages/core/optimization` kernel with versioned token parameters, structured evaluations, semantic updates, and a replaceable Optimizer registry.
+- A `packages/core/optimization` kernel where domain Agents register versioned text parameters, select feedback eligibility per instance, record exact context exposure, and accept atomic semantic updates from replaceable Optimizers.
 - Parallel, isolated reasoning trajectories with persistent run identity.
 - Verifier-gated trusted progress and reward-hacking defenses.
 - Comparative reflection as a directional textual update.

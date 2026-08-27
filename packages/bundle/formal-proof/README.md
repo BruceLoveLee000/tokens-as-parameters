@@ -31,7 +31,7 @@ dsh web
 
 The package manifest's `dsh.bundle.patch` composes eight runtime plugins:
 
-- `core-optimization`: stable Token Optimizer registry and contracts;
+- `core-optimization`: domain-neutral text-parameter, exposure, feedback, atomic-update, and Optimizer registry contracts;
 - `optimizer-relative-reflection`: replaceable group-relative semantic Optimizer;
 - `proof-observer`: durable domain-event ledger and run snapshots;
 - `proof-verification`: stable Verifier registry;
@@ -111,8 +111,12 @@ The Reflector is an autonomous DSH agent, not a one-shot summarizer. Its default
 
 After comparison, the controller creates a multi-parent Reflection commit. Its tree starts from the trusted proof, while its parents record every consumed Lane tip. This node becomes the next Epoch's `searchBaseCommit` without falsely advancing `trustedCommit` or importing unverified proof trees.
 
-After the reflection soft-token boundary, inspection tools disappear and a current-step message asks the agent to call `submit_reflection`. A valid submission ends the turn; a second invalid submission falls back to a neutral update. The reflection carries one common direction plus one route per rollout, but does not hard-code theorem assignments or FDIV-specific proof hints.
+The Formal Prover Agent registers `task.memory`, `task.plan`, and one `lane.<id>.route` parameter per rollout; their trainability is selected at Agent instantiation rather than hard-coded in Core. Every Session records the exact revisions it consumed. The Reflector can inspect parameter usage as well as trajectory and Git evidence, then atomically replace any justified subset while preserving omitted parameters.
+
+`proof_run_start` exposes this experiment boundary through `feedback_memory`, `feedback_plan`, and `feedback_routes`. At least one must remain enabled when reflection is enabled.
+
+After the reflection soft-token boundary, inspection tools disappear and a current-step message asks the agent to call `submit_reflection`. A valid submission ends the turn; a second invalid submission falls back to a neutral update. Neither Core nor the generic Bundle hard-codes theorem assignments or FDIV-specific proof hints.
 
 ## Current limitation
 
-The packaged mechanism has unit and contract coverage, but the historical FDIV 14/14 result has not yet been rerun through this Bundle. Follow the versioned [reproduction protocol](../../../experiments/fdiv-reproduction/README.md); do not cite the old result as a Bundle reproduction until its evidence gate is complete.
+The packaged mechanism has unit and contract coverage, but the historical FDIV 14/14 result has not yet been rerun through this Bundle. Follow the versioned [reproduction protocol](../../../experiments/fdiv-reproduction/README.md) and read the [capability regression review](../../../docs/en/architecture/fdiv-capability-review.md); do not cite the old result as a Bundle reproduction until its evidence gate is complete.

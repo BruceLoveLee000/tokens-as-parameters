@@ -7,14 +7,14 @@ The workspace follows the DeepSeek Harness convention of grouping independent np
 ```text
 packages/
 ├── core/
-│   ├── optimization/                   optimizer seam and token-training vocabulary
+│   ├── optimization/                   text-parameter, feedback, update, and optimizer contracts
 │   ├── optimizer-relative-reflection/ relative-reflection provider plugin
 │   ├── state-git/                      Git-backed parameter and insight state
 │   └── telemetry/                      domain-neutral DSH trajectory projection
 ├── formal/
 │   ├── proof-contracts/                case, receipt, run, and trust contracts
 │   ├── proof-observer/                 durable proof events and snapshots
-│   ├── proof-roles/                    Prover and Reviewer role plugin
+│   ├── proof-roles/                    Formal Agent definition plus Prover/Reviewer roles
 │   ├── proof-runtime/                  formal-proof Epoch/Rollout engine
 │   ├── proof-verification/             verifier service and provider registry
 │   └── tool-proof-run/                 model-facing run controls

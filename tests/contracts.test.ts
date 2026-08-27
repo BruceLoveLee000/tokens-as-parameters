@@ -4,7 +4,18 @@ import {
   CaseManifestSchema,
   StartProofRunSchema,
 } from '@tokens-as-parameters/proof-contracts'
-import { validateOptimizationPlan } from '@tokens-as-parameters/core-optimization'
+import {
+  applyParameterUpdatePlan,
+  createTextParameterContextSnapshot,
+  createTextParameterState,
+  validateParameterUpdatePlan,
+} from '@tokens-as-parameters/core-optimization'
+import {
+  createFormalProverParameterState,
+  FORMAL_PROVER_MEMORY_PARAMETER_ID,
+  FORMAL_PROVER_PLAN_PARAMETER_ID,
+  formalProverRouteParameterId,
+} from '@tokens-as-parameters/proof-roles'
 
 const HASH = 'a'.repeat(64)
 
@@ -43,21 +54,72 @@ test('run configuration supplies reproducible defaults', () => {
   assert.equal(parsed.search.maxCumulativeTokensPerLane, 20_000_000)
   assert.equal(parsed.search.optimizer, 'relative-reflection')
   assert.equal(parsed.search.verifier, 'lean')
+  assert.deepEqual(parsed.search.parameterFeedback, { memory: true, plan: true, routes: true })
+  assert.equal(StartProofRunSchema.safeParse({
+    caseRoot: '/tmp/case',
+    search: {
+      parameterFeedback: { memory: false, plan: false, routes: false },
+      reflection: { enabled: true },
+    },
+  }).success, false)
 })
 
-test('relative reflection must cover every rollout exactly once', () => {
-  const valid = validateOptimizationPlan({
-    reflection: 'Lane one found a reusable decomposition.',
-    commonPrompt: 'Preserve checker-validated progress.',
-    routes: [
-      { rolloutId: 'r1', prompt: 'Generalize the decomposition.' },
-      { rolloutId: 'r2', prompt: 'Try a direct bit-vector argument.' },
+test('text parameter updates are instance-selected, atomic, and revisioned', () => {
+  const state = createTextParameterState({
+    moduleId: 'test-agent',
+    version: 'v1',
+    parameters: [
+      {
+        definition: { id: 'task', description: 'Immutable user task.', scope: 'run' },
+        content: 'Prove the theorem.',
+        requiresFeedback: false,
+      },
+      {
+        definition: { id: 'plan', description: 'Search plan.', scope: 'run' },
+        content: 'Explore independently.',
+      },
     ],
-  }, ['r1', 'r2'])
-  assert.equal(valid.routes.length, 2)
-  assert.throws(() => validateOptimizationPlan({
-    reflection: 'Incomplete update.',
-    commonPrompt: 'Continue.',
-    routes: [{ rolloutId: 'r1', prompt: 'Continue.' }],
-  }, ['r1', 'r2']))
+  })
+  const context = createTextParameterContextSnapshot({
+    id: 'run-1/epoch-1/r1',
+    state,
+    parameterIds: ['task', 'plan'],
+    metadata: { rolloutId: 'r1' },
+  })
+  assert.deepEqual(context.parameters, [
+    { parameterId: 'task', revision: 'v1' },
+    { parameterId: 'plan', revision: 'v1' },
+  ])
+
+  const plan = validateParameterUpdatePlan({
+    baseStateVersion: 'v1',
+    reflection: 'The first route found a reusable decomposition.',
+    updates: [{ parameterId: 'plan', content: 'Generalize that decomposition.' }],
+  }, state)
+  const next = applyParameterUpdatePlan(state, plan, 'v2')
+  assert.equal(next.parameters.find(parameter => parameter.id === 'task')?.revision, 'v1')
+  assert.equal(next.parameters.find(parameter => parameter.id === 'plan')?.revision, 'v2')
+  assert.throws(() => validateParameterUpdatePlan({
+    baseStateVersion: 'v1',
+    reflection: 'Attempt to mutate the task.',
+    updates: [{ parameterId: 'task', content: 'Prove something easier.' }],
+  }, state), /frozen/)
+  assert.throws(() => validateParameterUpdatePlan({
+    baseStateVersion: 'stale',
+    reflection: 'Stale feedback.',
+    updates: [],
+  }, state), /stale/)
+})
+
+test('formal prover owns its domain parameter architecture above Core', () => {
+  const state = createFormalProverParameterState('run-1/initial', ['r1', 'r2'], {
+    memory: false,
+    plan: true,
+    routes: true,
+  })
+  assert.equal(state.moduleId, 'formal-prover')
+  assert.equal(state.parameters.find(parameter => parameter.id === FORMAL_PROVER_MEMORY_PARAMETER_ID)?.requiresFeedback, false)
+  assert.equal(state.parameters.find(parameter => parameter.id === FORMAL_PROVER_PLAN_PARAMETER_ID)?.requiresFeedback, true)
+  assert.equal(state.parameters.find(parameter => parameter.id === formalProverRouteParameterId('r2'))?.scope, 'lane')
+  assert.equal(state.parameters.some(parameter => parameter.id.includes('fdiv')), false)
 })

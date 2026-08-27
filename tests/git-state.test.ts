@@ -7,6 +7,10 @@ import { promisify } from 'node:util'
 import test from 'node:test'
 import type { CommandReceipt, CommandRunner, CommandSpec } from '@tokens-as-parameters/core-state-git'
 import { GitState } from '@tokens-as-parameters/core-state-git'
+import {
+  applyParameterUpdatePlan,
+  createTextParameterState,
+} from '@tokens-as-parameters/core-optimization'
 import { transplantDeclarations } from '@tokens-as-parameters/verifier-lean'
 
 const execFileAsync = promisify(execFile)
@@ -89,6 +93,20 @@ test('reflection state records consumed lane tips without merging their proof tr
   const state = new GitState(new LocalRunner())
   const worktree = `${repository}-reflection-wt`
   await state.createWorktree(repository, baseline, worktree)
+  const parameters = createTextParameterState({
+    moduleId: 'test-agent',
+    version: 'v1',
+    parameters: [{
+      definition: { id: 'search.plan', description: 'Search direction.', scope: 'run' },
+      content: 'Explore independently.',
+    }],
+  })
+  const plan = {
+    baseStateVersion: 'v1',
+    reflection: 'Both lanes closed the same goal through distinct tactics.',
+    updates: [{ parameterId: 'search.plan', content: 'Preserve the checker-clean theorem.' }],
+  }
+  const nextParameters = applyParameterUpdatePlan(parameters, plan, 'v2')
   const reflection = await state.createReflectionState(
     repository,
     worktree,
@@ -96,14 +114,8 @@ test('reflection state records consumed lane tips without merging their proof tr
     1,
     baseline,
     [laneOne, laneTwo],
-    {
-      reflection: 'Both lanes closed the same goal through distinct tactics.',
-      commonPrompt: 'Preserve the checker-clean theorem.',
-      routes: [
-        { rolloutId: 'r1', prompt: 'Generalize the direct proof.' },
-        { rolloutId: 'r2', prompt: 'Test simplifier robustness.' },
-      ],
-    },
+    plan,
+    nextParameters,
   )
 
   assert.deepEqual(

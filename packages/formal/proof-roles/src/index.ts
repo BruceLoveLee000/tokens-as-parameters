@@ -4,6 +4,11 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { z } from 'zod'
+import {
+  createTextParameterState,
+  requireTextParameter,
+  type TextParameterState,
+} from '@tokens-as-parameters/core-optimization'
 import type {
   ProofReceipt,
   WhiteboxReview,
@@ -33,13 +38,71 @@ const WhiteboxReviewSubmissionSchema = z.object({
   recommendation: z.string(),
 })
 
+export const FORMAL_PROVER_MODULE_ID = 'formal-prover'
+export const FORMAL_PROVER_MEMORY_PARAMETER_ID = 'task.memory'
+export const FORMAL_PROVER_PLAN_PARAMETER_ID = 'task.plan'
+
+export function formalProverRouteParameterId(rolloutId: string): string {
+  const normalized = rolloutId.trim()
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(normalized)) {
+    throw new Error(`invalid formal prover rollout id: ${rolloutId}`)
+  }
+  return `lane.${normalized}.route`
+}
+
+export interface FormalProverFeedbackSelection {
+  memory?: boolean
+  plan?: boolean
+  routes?: boolean
+}
+
+/** Domain-owned Agent definition. Core knows none of these parameter ids. */
+export function createFormalProverParameterState(
+  version: string,
+  rolloutIds: readonly string[],
+  selection: FormalProverFeedbackSelection = {},
+): TextParameterState {
+  return createTextParameterState({
+    moduleId: FORMAL_PROVER_MODULE_ID,
+    version,
+    parameters: [
+      {
+        definition: {
+          id: FORMAL_PROVER_MEMORY_PARAMETER_ID,
+          scope: 'run',
+          description: 'Concise verifier-backed facts, reusable proof discoveries, and failed assumptions shared by all formal-prover lanes in the next epoch.',
+        },
+        content: 'No shared verifier-backed task memory has been learned yet.',
+        requiresFeedback: selection.memory ?? true,
+      },
+      {
+        definition: {
+          id: FORMAL_PROVER_PLAN_PARAMETER_ID,
+          scope: 'run',
+          description: 'Shared proof-search policy for the next epoch. It guides prioritization and proof engineering but never changes the locked theorem or trust policy.',
+        },
+        content: 'Use Lean feedback, preserve locked inputs, and prefer small reusable lemmas that improve the checker-visible proof state.',
+        requiresFeedback: selection.plan ?? true,
+      },
+      ...rolloutIds.map(rolloutId => ({
+        definition: {
+          id: formalProverRouteParameterId(rolloutId),
+          scope: 'lane' as const,
+          description: `Independent search assignment for formal-prover lane ${rolloutId}. It should preserve useful diversity while targeting checker-visible progress.`,
+        },
+        content: 'Explore independently from the common checker-verified baseline.',
+        requiresFeedback: selection.routes ?? true,
+      })),
+    ],
+  })
+}
+
 export interface ProverRoleOptions {
   agent: Agent
   runId: string
   epoch: number
   rolloutId: string
-  route: string
-  commonPrompt: string
+  parameters: TextParameterState
   worktree: string
   baseCommit: string
   baselineClosed: number
@@ -74,6 +137,9 @@ export default class ProofRoleService extends Service {
 
   installProver(agentCtx: Context, options: ProverRoleOptions): void {
     const manifest = options.resolvedCase.manifest
+    const memory = requireTextParameter(options.parameters, FORMAL_PROVER_MEMORY_PARAMETER_ID)
+    const plan = requireTextParameter(options.parameters, FORMAL_PROVER_PLAN_PARAMETER_ID)
+    const route = requireTextParameter(options.parameters, formalProverRouteParameterId(options.rolloutId))
     agentCtx.systemPrompt.section({
       name: 'tokens-as-parameters:prover',
       order: 90,
@@ -84,9 +150,22 @@ export default class ProofRoleService extends Service {
         'Use Lean feedback as evidence. Intermediate sorry declarations may remain only for obligations not yet closed; never add admit, axioms, unsafe declarations, theorem shadowing, or domain restrictions.',
         'Call record_insight when a material hypothesis, failure explanation, or reusable proof fact becomes clear. The runtime commits the current proof state with the insight.',
         'A candidate is trusted only after the controller-owned checker accepts it. Do not claim completion from your own shell output.',
-        `Common comparative guidance: ${options.commonPrompt}`,
-        `This lane's route: ${options.route}`,
       ].join('\n'),
+    })
+    agentCtx.systemPrompt.section({
+      name: `tokens-as-parameters:${memory.id}`,
+      order: 91,
+      text: `Shared verifier-backed task memory:\n${memory.content}`,
+    })
+    agentCtx.systemPrompt.section({
+      name: `tokens-as-parameters:${plan.id}`,
+      order: 92,
+      text: `Shared proof-search plan:\n${plan.content}`,
+    })
+    agentCtx.systemPrompt.section({
+      name: `tokens-as-parameters:${route.id}`,
+      order: 93,
+      text: `This lane's independent search assignment:\n${route.content}`,
     })
 
     agentCtx.tools.register(defineTool({

@@ -11,6 +11,7 @@
   "files": ["lib"],
   "license": "Apache-2.0",
   "dependencies": {
+    "@tokens-as-parameters/core-optimization": "0.1.0",
     "@tokens-as-parameters/core-state-git": "0.1.0",
     "@tokens-as-parameters/proof-contracts": "0.1.0",
     "@tokens-as-parameters/proof-verification": "0.1.0",

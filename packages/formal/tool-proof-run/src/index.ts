@@ -45,6 +45,9 @@ export function apply(ctx: Context): void {
       max_lane_tokens: { type: 'integer', description: 'Per-lane cumulative token cap, default 20000000.' },
       total_token_budget: { type: 'integer', description: 'Whole-run token cap, default 300000000.' },
       max_wall_time_seconds: { type: 'integer', description: 'Whole-run wall-time cap, default 43200.' },
+      feedback_memory: { type: 'boolean', description: 'Allow reflection to update shared verifier-backed task memory, default true.' },
+      feedback_plan: { type: 'boolean', description: 'Allow reflection to update the shared proof-search plan, default true.' },
+      feedback_routes: { type: 'boolean', description: 'Allow reflection to update lane-specific search assignments, default true.' },
       reflection_enabled: { type: 'boolean', description: 'Enable group-relative reflection, default true.' },
       reflection_soft_tokens: { type: 'integer', description: 'Switch a reflector to submit-only after this cumulative token count.' },
       whitebox_review: { type: 'boolean', description: 'Require model white-box veto review after deterministic final acceptance.' },
@@ -67,6 +70,11 @@ export function apply(ctx: Context): void {
         ...(args.total_token_budget === undefined ? {} : { totalTokenBudget: args.total_token_budget }),
         ...(args.max_wall_time_seconds === undefined ? {} : { maxWallTimeSeconds: args.max_wall_time_seconds }),
         ...(args.whitebox_review === undefined ? {} : { whiteboxReview: args.whitebox_review }),
+        parameterFeedback: {
+          ...(args.feedback_memory === undefined ? {} : { memory: args.feedback_memory }),
+          ...(args.feedback_plan === undefined ? {} : { plan: args.feedback_plan }),
+          ...(args.feedback_routes === undefined ? {} : { routes: args.feedback_routes }),
+        },
         reflection: {
           ...(args.reflection_enabled === undefined ? {} : { enabled: args.reflection_enabled }),
           ...(args.reflection_soft_tokens === undefined ? {} : { softTokenBudget: args.reflection_soft_tokens }),
