@@ -19,9 +19,20 @@ Before changing code:
 
 ## Current Repository State
 
-The repository is in its initialization phase. No package manager workspace, build command, or test command has been committed yet.
+The repository contains one npm/TypeScript DSH Bundle targeting DSH `0.1.1-rc.2`. Use Node.js `^22.19` or `>=24`.
 
-Do not invent commands in documentation or automation. When the monorepo scaffold is introduced, update this file with commands that have been executed successfully from a clean checkout.
+The following repository commands have been executed successfully:
+
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run build
+npm run check
+npm run pack:check
+```
+
+Run focused tests first while developing, then `npm run check` before committing. Revalidate `npm run pack:check` whenever exports, the Bundle patch, or package files change.
 
 ## Repository Map
 

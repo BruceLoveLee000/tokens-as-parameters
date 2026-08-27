@@ -1,0 +1,21 @@
+# Tokens as Parameters formal-proof Bundle. The official dsh-base profile owns
+# the Agent Loop, sessions, model adapters, filesystem, shell, compaction,
+# token meter, sandbox and Web surface. These rows add only research-domain
+# services and model-facing controls.
+- insert:
+    - id: tap-proof-observer
+      name: '@tokens-as-parameters/dsh-formal-proof/observer'
+
+    - id: tap-proof-roles
+      name: '@tokens-as-parameters/dsh-formal-proof/roles'
+
+    - id: tap-relative-reflection
+      name: '@tokens-as-parameters/dsh-formal-proof/reflection'
+
+    - id: tap-proof-runtime
+      name: '@tokens-as-parameters/dsh-formal-proof/runtime'
+      config:
+        preserveWorktrees: true
+
+    - id: tap-proof-run-tools
+      name: '@tokens-as-parameters/dsh-formal-proof/tools'

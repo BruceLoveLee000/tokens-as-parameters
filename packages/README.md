@@ -1,5 +1,9 @@
 # Packages
 
-This directory will contain the DSH-native plugin suite and reusable runtime libraries. The first implementation milestone will define package boundaries only after auditing the existing SpecRefine prototype against the current DeepSeek Harness extension APIs.
+English | [简体中文](README.zh-CN.md)
 
-Planned capability domains include orchestration, textual state, comparative reflection, context consolidation, verifier interfaces, Lean verification, observability, and experiment control.
+This directory contains the DSH-native plugin suite and reusable runtime libraries.
+
+- [`dsh-formal-proof`](dsh-formal-proof/README.md): one installable DSH Bundle composed from observer, role, reflection, runtime, and control-tool plugins.
+
+Domain contracts and verifier logic remain importable without booting DSH. DSH adapters use public services, tools, prompts, events, and agent creation APIs.

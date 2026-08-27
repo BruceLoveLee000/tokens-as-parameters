@@ -19,9 +19,20 @@
 
 ## 当前仓库状态
 
-仓库仍处于初始化阶段，尚未提交包管理器 Workspace、构建命令或测试命令。
+仓库当前包含一个 npm/TypeScript DSH Bundle，目标 DSH 版本为 `0.1.1-rc.2`。使用 Node.js `^22.19` 或 `>=24`。
 
-不要在文档或自动化脚本中虚构命令。Monorepo 脚手架建立后，只能把已在干净 Checkout 中成功执行过的命令补充到本文件。
+以下仓库命令已经成功执行：
+
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run build
+npm run check
+npm run pack:check
+```
+
+开发时先运行聚焦测试，提交前运行 `npm run check`。修改 Export、Bundle Patch 或 Package 文件后，必须重新运行 `npm run pack:check`。
 
 ## 仓库目录
 

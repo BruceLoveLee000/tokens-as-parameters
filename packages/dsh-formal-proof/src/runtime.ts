@@ -1,0 +1,825 @@
+import { randomUUID } from 'node:crypto'
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { basename, join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { Context, Service } from '@deepseek-ai/cordis'
+import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-subprocess'
+import {
+  RUN_SCHEMA_VERSION,
+  StartProofRunSchema,
+  neutralReflectionPlan,
+  type CaseManifest,
+  type LaneEvidence,
+  type ProofReceipt,
+  type ProofRunSnapshot,
+  type ReflectionPlan,
+  type StartProofRun,
+  type WhiteboxReview,
+} from './contracts.js'
+import { DshCommandRunner } from './command-runner.js'
+import { loadCaseManifest, resolveInside, type ResolvedCase } from './case-manifest.js'
+import { GitState, transplantDeclarations } from './git-state.js'
+import { LeanVerifier } from './lean-verifier.js'
+import type ProofRoleService from './proof-tools.js'
+import type RelativeReflectionService from './relative-reflection.js'
+import type ProofObserverService from './observer.js'
+import {
+  emptyTokenUsage,
+  lastTurnReason,
+  sessionTokens,
+  sessionTrace,
+  sessionTraceTail,
+  sessionUsage,
+} from './session-utils.js'
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    proofRuns: ProofRunService
+  }
+}
+
+export interface Config {
+  defaultRunRoot?: string
+  preserveWorktrees?: boolean
+}
+
+interface RunRecord {
+  snapshot: ProofRunSnapshot
+  directory: string
+  resolvedCase: ResolvedCase
+  controller: AbortController
+  handles: Set<AgentHandle>
+  task: Promise<void>
+}
+
+interface LaneRuntime {
+  evidence: LaneEvidence
+  baseCommit: string
+  worktree: string
+  handle: AgentHandle
+  detachObserver: () => void
+}
+
+interface ConsolidationResult {
+  commit: string
+  receipt: ProofReceipt
+  worktree: string
+}
+
+function runId(caseId: string): string {
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
+  const safe = caseId.replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 80)
+  return `${safe}-${stamp}-${randomUUID().slice(0, 8)}`
+}
+
+function clone<T>(value: T): T {
+  return structuredClone(value)
+}
+
+function terminal(state: ProofRunSnapshot['state']): boolean {
+  return ['PROVED', 'DISPROVED', 'UNKNOWN', 'ABORTED', 'FAILED'].includes(state)
+}
+
+function isProofRunSnapshot(value: unknown): value is ProofRunSnapshot {
+  if (value === null || typeof value !== 'object') return false
+  const candidate = value as Partial<ProofRunSnapshot>
+  return candidate.schemaVersion === RUN_SCHEMA_VERSION
+    && typeof candidate.runId === 'string'
+    && typeof candidate.caseId === 'string'
+    && typeof candidate.state === 'string'
+    && typeof candidate.trustedCommit === 'string'
+    && typeof candidate.searchBaseCommit === 'string'
+    && typeof candidate.config === 'object'
+}
+
+async function mapLimit<T, R>(
+  values: readonly T[],
+  limit: number,
+  operation: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const output = new Array<R>(values.length)
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(limit, values.length) }, async () => {
+    while (cursor < values.length) {
+      const index = cursor
+      cursor += 1
+      const value = values[index]
+      if (value !== undefined) output[index] = await operation(value, index)
+    }
+  })
+  await Promise.all(workers)
+  return output
+}
+
+function proofTask(manifest: CaseManifest, route: string): string {
+  return [
+    `Prove the locked formal claim ${manifest.lean.theoremName} in ${manifest.lean.proofFile}.`,
+    `The claim scope is ${manifest.claimScope}.`,
+    `Open obligations: ${manifest.lean.obligations.join(', ')}. Use lean_check_candidate to measure actual status.`,
+    `Search route: ${route}`,
+    'Work directly in the provided isolated Git worktree. Preserve all locked inputs and record evidence-backed insights as the proof state changes.',
+  ].join('\n')
+}
+
+export default class ProofRunService extends Service {
+  static inject = ['agents', 'subprocess', 'proofRoles', 'proofReflection', 'proofObserver']
+
+  private readonly records = new Map<string, RunRecord>()
+  private readonly runner: DshCommandRunner
+  private readonly git: GitState
+  private readonly verifier: LeanVerifier
+  private readonly config: Required<Config>
+
+  constructor(
+    ctx: Context,
+    config: Config = {},
+    private readonly roles: ProofRoleService = ctx.proofRoles,
+    private readonly reflection: RelativeReflectionService = ctx.proofReflection,
+    private readonly observer: ProofObserverService = ctx.proofObserver,
+  ) {
+    super(ctx, 'proofRuns')
+    this.runner = new DshCommandRunner(ctx)
+    this.git = new GitState(this.runner)
+    this.verifier = new LeanVerifier(this.runner)
+    this.config = {
+      defaultRunRoot: resolve(config.defaultRunRoot ?? join(process.cwd(), '.tokens-as-parameters', 'runs')),
+      preserveWorktrees: config.preserveWorktrees ?? true,
+    }
+    ctx.effect(() => async () => {
+      const records = [...this.records.values()]
+      records.forEach(record => {
+        if (!terminal(record.snapshot.state)) record.controller.abort('plugin disposed')
+        record.handles.forEach(handle => handle.agent.cancel({ kind: 'disposed' }))
+      })
+      await Promise.allSettled(records.map(record => record.task))
+      await Promise.allSettled(records.flatMap(record => [...record.handles].map(handle => handle.dispose())))
+    }, 'tokens-as-parameters.proof-runs()')
+  }
+
+  async list(): Promise<ProofRunSnapshot[]> {
+    const snapshots = new Map<string, ProofRunSnapshot>()
+    for (const snapshot of await this.readHistoricalSnapshots()) snapshots.set(snapshot.runId, snapshot)
+    for (const record of this.records.values()) snapshots.set(record.snapshot.runId, clone(record.snapshot))
+    return [...snapshots.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+  }
+
+  async get(id: string): Promise<ProofRunSnapshot | undefined> {
+    const record = this.records.get(id)
+    if (record !== undefined) return clone(record.snapshot)
+    if (!/^[A-Za-z0-9._-]+$/.test(id)) return undefined
+    try {
+      const parsed: unknown = JSON.parse(await readFile(join(this.config.defaultRunRoot, id, 'run.json'), 'utf8'))
+      return isProofRunSnapshot(parsed) ? this.asHistoricalSnapshot(parsed) : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  async start(input: unknown, owner: Agent): Promise<ProofRunSnapshot> {
+    const config = StartProofRunSchema.parse(input)
+    const resolvedCase = await loadCaseManifest(config.caseRoot, config.manifestPath)
+    const baseline = await this.git.resolve(
+      resolvedCase.root,
+      config.baselineCommit ?? resolvedCase.manifest.git.baselineCommit ?? 'HEAD',
+    )
+    const id = runId(resolvedCase.manifest.caseId)
+    const root = resolve(config.runRoot ?? this.config.defaultRunRoot, id)
+    const now = new Date().toISOString()
+    const snapshot: ProofRunSnapshot = {
+      schemaVersion: RUN_SCHEMA_VERSION,
+      runId: id,
+      caseId: resolvedCase.manifest.caseId,
+      claimScope: resolvedCase.manifest.claimScope,
+      state: 'PREPARING',
+      createdAt: now,
+      updatedAt: now,
+      epoch: 0,
+      trustedCommit: baseline,
+      searchBaseCommit: baseline,
+      trustedObligationsClosed: 0,
+      obligationsTotal: resolvedCase.manifest.lean.obligations.length,
+      totalTokens: 0,
+      tokenUsage: emptyTokenUsage(),
+      activeSessionIds: [],
+      lanes: [],
+      config,
+    }
+    const controller = new AbortController()
+    const record: RunRecord = {
+      snapshot,
+      directory: root,
+      resolvedCase,
+      controller,
+      handles: new Set(),
+      task: Promise.resolve(),
+    }
+    this.records.set(id, record)
+    await this.observer.registerRun(id, root, 'PREPARING')
+    await this.persist(record)
+    record.task = this.execute(record, owner)
+      .catch(async (error: unknown) => {
+        if (record.controller.signal.aborted) {
+          await this.finalize(record, 'ABORTED', 'proof run was stopped')
+          return
+        }
+        record.snapshot.error = error instanceof Error ? error.stack ?? error.message : String(error)
+        await this.finalize(record, 'FAILED', error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => this.disposeRemainingHandles(record))
+    return clone(snapshot)
+  }
+
+  async stop(id: string): Promise<ProofRunSnapshot> {
+    const record = this.records.get(id)
+    if (record === undefined) throw new Error(`unknown proof run: ${id}`)
+    if (!terminal(record.snapshot.state)) {
+      record.controller.abort('user stop')
+      record.handles.forEach(handle => handle.agent.cancel({ kind: 'user' }))
+      await record.task
+    }
+    return clone(record.snapshot)
+  }
+
+  private async execute(record: RunRecord, owner: Agent): Promise<void> {
+    const started = Date.now()
+    record.snapshot.startedAt = new Date(started).toISOString()
+    await this.transition(record, 'PREPARING', 'validating the frozen baseline')
+    const baselineWorktree = this.worktreePath(record.snapshot.runId, 0, 'baseline')
+    await this.git.createWorktree(record.resolvedCase.root, record.snapshot.trustedCommit, baselineWorktree, record.controller.signal)
+    let baselineReceipt: ProofReceipt
+    try {
+      baselineReceipt = await this.verifier.check(
+        record.resolvedCase,
+        baselineWorktree,
+        0,
+        record.controller.signal,
+        record.snapshot.trustedCommit,
+      )
+    } catch (error) {
+      if (!this.config.preserveWorktrees) await this.git.removeWorktree(record.resolvedCase.root, baselineWorktree)
+      throw error
+    }
+    const fatalPreflightKinds = new Set([
+      'admit',
+      'axiom',
+      'unsafe',
+      'signature',
+      'locked-input',
+      'unauthorized-change',
+      'build',
+    ])
+    if (
+      !baselineReceipt.lockedInputsMatch
+      || !baselineReceipt.theoremSignatureMatches
+      || baselineReceipt.build.exitCode !== 0
+      || baselineReceipt.findings.some(finding => fatalPreflightKinds.has(finding.kind))
+    ) {
+      throw new Error('frozen baseline failed the trusted preflight checker')
+    }
+    record.snapshot.trustedObligationsClosed = baselineReceipt.obligationsClosed
+    await this.persist(record)
+    if (baselineReceipt.finalAccepted) {
+      try {
+        await this.acceptFinalCandidate(record, owner, baselineWorktree, baselineReceipt)
+      } finally {
+        if (!this.config.preserveWorktrees) await this.git.removeWorktree(record.resolvedCase.root, baselineWorktree)
+      }
+      return
+    }
+    if (!this.config.preserveWorktrees) await this.git.removeWorktree(record.resolvedCase.root, baselineWorktree)
+
+    let routes = Array.from({ length: record.snapshot.config.search.rollouts }, (_, index) => ({
+      rolloutId: `r${index + 1}`,
+      prompt: 'Explore independently from the common checker-verified baseline.',
+    }))
+    let commonPrompt = 'Use Lean feedback, preserve locked inputs, and prefer small reusable lemmas.'
+    let epoch = 0
+    while (true) {
+      epoch += 1
+      this.throwIfStopped(record)
+      if (Date.now() - started > record.snapshot.config.search.maxWallTimeSeconds * 1_000) {
+        await this.finalize(record, 'UNKNOWN', 'wall-time budget exhausted')
+        return
+      }
+      if (record.snapshot.totalTokens >= record.snapshot.config.search.totalTokenBudget) {
+        await this.finalize(record, 'UNKNOWN', 'total token budget exhausted')
+        return
+      }
+      record.snapshot.epoch = epoch
+      record.snapshot.lanes = []
+      await this.transition(record, 'PROVING', `starting epoch ${epoch}`)
+      const lanes = await mapLimit(
+        routes,
+        record.snapshot.config.search.maxParallel,
+        route => this.runLane(record, owner, epoch, route.rolloutId, `${commonPrompt}\n${route.prompt}`),
+      )
+      record.snapshot.lanes = lanes.map(lane => lane.evidence)
+      lanes.forEach(lane => this.addTokenUsage(record, lane.evidence.tokenUsage))
+      await this.persist(record)
+
+      const finalLane = lanes
+        .filter(lane => lane.evidence.receipt.finalAccepted)
+        .sort((left, right) => right.evidence.receipt.obligationsClosed - left.evidence.receipt.obligationsClosed)[0]
+      if (finalLane !== undefined) {
+        try {
+          await this.acceptFinalCandidate(record, owner, finalLane.worktree, finalLane.evidence.receipt)
+        } finally {
+          await this.disposeLanes(record, lanes)
+        }
+        return
+      }
+
+      const consolidation = await this.consolidate(record, epoch, lanes)
+      if (consolidation.receipt.obligationsClosed > record.snapshot.trustedObligationsClosed) {
+        record.snapshot.trustedCommit = consolidation.commit
+        record.snapshot.trustedObligationsClosed = consolidation.receipt.obligationsClosed
+        await this.observer.emit({
+          runId: record.snapshot.runId,
+          type: 'proof/trusted-baseline-advanced',
+          state: record.snapshot.state,
+          message: `trusted progress advanced to ${consolidation.receipt.obligationsClosed}/${consolidation.receipt.obligationsTotal}`,
+          epoch,
+          data: { commit: consolidation.commit, closed: consolidation.receipt.closedObligations },
+        })
+      }
+      if (consolidation.receipt.finalAccepted) {
+        try {
+          await this.acceptFinalCandidate(record, owner, consolidation.worktree, consolidation.receipt)
+        } finally {
+          await this.disposeLanes(record, lanes)
+          if (!this.config.preserveWorktrees) {
+            await this.git.removeWorktree(record.resolvedCase.root, consolidation.worktree)
+          }
+        }
+        return
+      }
+      const plan = record.snapshot.config.search.reflection.enabled
+        ? await this.runReflection(record, owner, epoch, lanes)
+        : neutralReflectionPlan(routes.map(route => route.rolloutId))
+      record.snapshot.latestReflection = plan
+      commonPrompt = plan.commonPrompt
+      routes = plan.routes
+      if (record.snapshot.config.search.reflection.enabled) {
+        const stateWorktree = this.worktreePath(record.snapshot.runId, epoch, 'reflection-state')
+        await this.git.createWorktree(
+          record.resolvedCase.root,
+          record.snapshot.trustedCommit,
+          stateWorktree,
+          record.controller.signal,
+        )
+        try {
+          const state = await this.git.createReflectionState(
+            record.resolvedCase.root,
+            stateWorktree,
+            record.snapshot.runId,
+            epoch,
+            record.snapshot.trustedCommit,
+            lanes.flatMap(lane => lane.evidence.commit === undefined ? [] : [lane.evidence.commit]),
+            plan,
+            record.controller.signal,
+          )
+          record.snapshot.searchBaseCommit = state.commit
+          await this.observer.emit({
+            runId: record.snapshot.runId,
+            type: 'reflection/state-committed',
+            state: record.snapshot.state,
+            message: `epoch ${epoch} reflection became the next search-base node`,
+            epoch,
+            data: { commit: state.commit, path: state.path },
+          })
+        } finally {
+          if (!this.config.preserveWorktrees) {
+            await this.git.removeWorktree(record.resolvedCase.root, stateWorktree)
+          }
+        }
+      } else {
+        record.snapshot.searchBaseCommit = record.snapshot.trustedCommit
+      }
+      await this.persist(record)
+      await this.disposeLanes(record, lanes)
+      if (!this.config.preserveWorktrees) {
+        await this.git.removeWorktree(record.resolvedCase.root, consolidation.worktree)
+      }
+    }
+  }
+
+  private async runLane(
+    record: RunRecord,
+    owner: Agent,
+    epoch: number,
+    rolloutId: string,
+    route: string,
+  ): Promise<LaneRuntime> {
+    const worktree = this.worktreePath(record.snapshot.runId, epoch, rolloutId)
+    const baseCommit = record.snapshot.searchBaseCommit
+    await this.git.createWorktree(record.resolvedCase.root, baseCommit, worktree, record.controller.signal)
+    const sessionId = SessionId(`${record.snapshot.runId}-e${epoch}-${rolloutId}`)
+    const handle = await this.ctx.agents.create({
+      sessionId,
+      meta: {
+        cwd: worktree,
+        parentSession: owner.id,
+        origin: 'subagent',
+        delegationDepth: (owner.session.header.delegationDepth ?? 0) + 1,
+      },
+      agentOptions: {
+        provider: record.snapshot.config.search.provider,
+        model: record.snapshot.config.search.model,
+        maxTokens: record.snapshot.config.search.maxOutputTokensPerRequest,
+      },
+      signal: record.controller.signal,
+      setup: agentCtx => {
+        const agent = agentCtx.agent
+        if (agent === undefined) throw new Error('DSH did not associate the unpublished prover agent')
+        this.roles.installProver(agentCtx, {
+          agent,
+          runId: record.snapshot.runId,
+          epoch,
+          rolloutId,
+          route,
+          commonPrompt: record.snapshot.latestReflection?.commonPrompt ?? '',
+          worktree,
+          baseCommit,
+          baselineClosed: record.snapshot.trustedObligationsClosed,
+          resolvedCase: record.resolvedCase,
+          verifier: this.verifier,
+          git: this.git,
+          signal: record.controller.signal,
+        })
+      },
+    })
+    record.handles.add(handle)
+    record.snapshot.activeSessionIds.push(String(sessionId))
+    const detachObserver = this.observer.attachSession(handle.agent, {
+      runId: record.snapshot.runId,
+      epoch,
+      rolloutId,
+      role: 'prover',
+    })
+    handle.agent.followup(createUserMessage({
+      source: { kind: 'user' },
+      content: [{ type: 'text', text: proofTask(record.resolvedCase.manifest, route) }],
+    }))
+    await handle.agent.whenIdle()
+    while (
+      !record.controller.signal.aborted
+      && lastTurnReason(handle.agent.session.events) === 'max-tokens'
+      && sessionTokens(handle.agent.session.events) < record.snapshot.config.search.maxCumulativeTokensPerLane
+    ) {
+      handle.agent.followup(createUserMessage({
+        source: { kind: 'user' },
+        content: [{
+          type: 'text',
+          text: 'The previous response ended at its per-request output boundary, while this lane still has cumulative budget. Continue in the same session from the current worktree and Lean state. Do not restart the proof from scratch.',
+        }],
+      }))
+      await handle.agent.whenIdle()
+    }
+    const receipt = await this.verifier.check(
+      record.resolvedCase,
+      worktree,
+      record.snapshot.trustedObligationsClosed,
+      record.controller.signal,
+      baseCommit,
+    )
+    const commit = await this.git.commitPaths(
+      worktree,
+      record.resolvedCase.manifest.editableFiles,
+      `candidate(${rolloutId}): epoch ${epoch} closes ${receipt.obligationsClosed}/${receipt.obligationsTotal}`,
+      record.controller.signal,
+    )
+    const tokenUsage = sessionUsage(handle.agent.session.events)
+    const evidence: LaneEvidence = {
+      rolloutId,
+      sessionId: String(sessionId),
+      epoch,
+      route,
+      commit,
+      tokens: tokenUsage.totalTokens,
+      tokenUsage,
+      receipt,
+      traceTail: sessionTraceTail(handle.agent.session.events),
+    }
+    return { evidence, baseCommit, worktree, handle, detachObserver }
+  }
+
+  private async consolidate(record: RunRecord, epoch: number, lanes: readonly LaneRuntime[]): Promise<ConsolidationResult> {
+    const rolloutId = 'consolidator'
+    const worktree = this.worktreePath(record.snapshot.runId, epoch, rolloutId)
+    await this.git.createWorktree(record.resolvedCase.root, record.snapshot.searchBaseCommit, worktree, record.controller.signal)
+    const proofRelative = record.resolvedCase.manifest.lean.proofFile
+    const proofPath = resolveInside(worktree, proofRelative)
+    let source = await readFile(proofPath, 'utf8')
+    let bestReceipt = await this.verifier.check(
+      record.resolvedCase,
+      worktree,
+      record.snapshot.trustedObligationsClosed,
+      record.controller.signal,
+      record.snapshot.searchBaseCommit,
+    )
+    const candidates = [...lanes].sort(
+      (left, right) => right.evidence.receipt.obligationsClosed - left.evidence.receipt.obligationsClosed,
+    )
+    for (const lane of candidates) {
+      if (!lane.evidence.receipt.checkpointable) continue
+      const newlyClosed = lane.evidence.receipt.closedObligations.filter(
+        name => !bestReceipt.closedObligations.includes(name),
+      )
+      if (newlyClosed.length === 0) continue
+      const candidateSource = await readFile(resolveInside(lane.worktree, proofRelative), 'utf8')
+      const proposed = transplantDeclarations(source, candidateSource, newlyClosed)
+      await writeFile(proofPath, proposed, 'utf8')
+      const receipt = await this.verifier.check(
+        record.resolvedCase,
+        worktree,
+        bestReceipt.obligationsClosed,
+        record.controller.signal,
+        record.snapshot.searchBaseCommit,
+      )
+      if (receipt.checkpointable || receipt.finalAccepted) {
+        source = proposed
+        bestReceipt = receipt
+      } else {
+        await writeFile(proofPath, source, 'utf8')
+      }
+    }
+    const commit = await this.git.commitPaths(
+      worktree,
+      record.resolvedCase.manifest.editableFiles,
+      `consolidate: epoch ${epoch} trusted ${bestReceipt.obligationsClosed}/${bestReceipt.obligationsTotal}`,
+      record.controller.signal,
+    )
+    return { commit, receipt: bestReceipt, worktree }
+  }
+
+  private async runReflection(
+    record: RunRecord,
+    owner: Agent,
+    epoch: number,
+    lanes: LaneRuntime[],
+  ): Promise<ReflectionPlan> {
+    await this.transition(record, 'REFLECTING', `comparing epoch ${epoch} trajectories`)
+    const laneStateNodes = new Map(await Promise.all(lanes.map(async lane => [
+      lane.evidence.rolloutId,
+      await this.git.stateNodes(lane.worktree, 1_000, lane.baseCommit, record.controller.signal),
+    ] as const)))
+    const sessionId = SessionId(`${record.snapshot.runId}-e${epoch}-reflector`)
+    let capture: ReturnType<RelativeReflectionService['install']> | undefined
+    const handle = await this.ctx.agents.create({
+      sessionId,
+      meta: {
+        cwd: record.directory,
+        parentSession: owner.id,
+        origin: 'subagent',
+        delegationDepth: (owner.session.header.delegationDepth ?? 0) + 1,
+      },
+      agentOptions: {
+        provider: record.snapshot.config.search.provider,
+        model: record.snapshot.config.search.model,
+        maxTokens: record.snapshot.config.search.reflection.maxOutputTokensPerRequest,
+      },
+      signal: record.controller.signal,
+      setup: agentCtx => {
+        const agent = agentCtx.agent
+        if (agent === undefined) throw new Error('DSH did not associate the unpublished reflector agent')
+        capture = this.reflection.install(agentCtx, {
+          agent,
+          lanes: lanes.map(lane => lane.evidence),
+          laneTraces: new Map(lanes.map(lane => [
+            lane.evidence.rolloutId,
+            sessionTrace(lane.handle.agent.session.events),
+          ])),
+          laneWorktrees: new Map(lanes.map(lane => [lane.evidence.rolloutId, lane.worktree])),
+          laneStateNodes,
+          git: this.git,
+          softTokenBudget: record.snapshot.config.search.reflection.softTokenBudget,
+        })
+      },
+    })
+    record.handles.add(handle)
+    record.snapshot.activeSessionIds.push(String(sessionId))
+    const detach = this.observer.attachSession(handle.agent, {
+      runId: record.snapshot.runId,
+      epoch,
+      rolloutId: 'reflector',
+      role: 'reflector',
+    })
+    try {
+      handle.agent.followup(createUserMessage({
+        source: { kind: 'user' },
+        content: [{
+          type: 'text',
+          text: 'Compare the current epoch trajectories. Explore evidence as needed, then submit a concise common update and one non-homogeneous route for every rollout.',
+        }],
+      }))
+      await handle.agent.whenIdle()
+      while (
+        capture?.plan() === undefined
+        && lastTurnReason(handle.agent.session.events) === 'max-tokens'
+        && sessionTokens(handle.agent.session.events) <= record.snapshot.config.search.reflection.softTokenBudget
+          + record.snapshot.config.search.reflection.maxOutputTokensPerRequest
+      ) {
+        handle.agent.followup(createUserMessage({
+          source: { kind: 'user' },
+          content: [{
+            type: 'text',
+            text: 'Continue the same comparative reflection. Preserve the evidence already gathered and submit the directional update when ready.',
+          }],
+        }))
+        await handle.agent.whenIdle()
+      }
+      this.addTokenUsage(record, sessionUsage(handle.agent.session.events))
+      return capture?.plan() ?? neutralReflectionPlan(lanes.map(lane => lane.evidence.rolloutId))
+    } finally {
+      detach()
+      record.handles.delete(handle)
+      record.snapshot.activeSessionIds = record.snapshot.activeSessionIds.filter(id => id !== String(sessionId))
+      await handle.dispose()
+    }
+  }
+
+  private async acceptFinalCandidate(
+    record: RunRecord,
+    owner: Agent,
+    worktree: string,
+    receipt: ProofReceipt,
+  ): Promise<void> {
+    record.snapshot.finalReceipt = receipt
+    if (!record.snapshot.config.search.whiteboxReview) {
+      await this.finalize(record, 'PROVED', 'Lean checker accepted the complete theorem; white-box review disabled by experiment config')
+      return
+    }
+    await this.transition(record, 'REVIEWING', 'running read-only white-box reward-hacking review')
+    const sessionId = SessionId(`${record.snapshot.runId}-final-review`)
+    let capture: ReturnType<ProofRoleService['installReviewer']> | undefined
+    const handle = await this.ctx.agents.create({
+      sessionId,
+      meta: {
+        cwd: worktree,
+        parentSession: owner.id,
+        origin: 'subagent',
+        delegationDepth: (owner.session.header.delegationDepth ?? 0) + 1,
+      },
+      agentOptions: {
+        provider: record.snapshot.config.search.provider,
+        model: record.snapshot.config.search.model,
+        maxTokens: record.snapshot.config.search.reflection.maxOutputTokensPerRequest,
+      },
+      signal: record.controller.signal,
+      setup: agentCtx => {
+        const agent = agentCtx.agent
+        if (agent === undefined) throw new Error('DSH did not associate the unpublished reviewer agent')
+        capture = this.roles.installReviewer(agentCtx, { agent, resolvedCase: record.resolvedCase, receipt })
+      },
+    })
+    record.handles.add(handle)
+    record.snapshot.activeSessionIds.push(String(sessionId))
+    const detach = this.observer.attachSession(handle.agent, {
+      runId: record.snapshot.runId,
+      epoch: record.snapshot.epoch,
+      rolloutId: 'reviewer',
+      role: 'reviewer',
+    })
+    try {
+      handle.agent.followup(createUserMessage({
+        source: { kind: 'user' },
+        content: [{
+          type: 'text',
+          text: 'Inspect the checker-accepted Lean candidate for semantic reward hacking. Submit the final white-box review after reading the relevant proof and interfaces.',
+        }],
+      }))
+      await handle.agent.whenIdle()
+      this.addTokenUsage(record, sessionUsage(handle.agent.session.events))
+      const review: WhiteboxReview | undefined = capture?.review()
+      if (review !== undefined) record.snapshot.whiteboxReview = review
+      if (review?.approved === true) {
+        await this.finalize(record, 'PROVED', 'Lean checker and white-box review accepted the complete theorem')
+      } else {
+        await this.finalize(record, 'UNKNOWN', review === undefined
+          ? 'checker passed but reviewer did not submit a valid assessment'
+          : `checker passed but white-box review vetoed the candidate: ${review.recommendation}`)
+      }
+    } finally {
+      detach()
+      record.handles.delete(handle)
+      record.snapshot.activeSessionIds = record.snapshot.activeSessionIds.filter(id => id !== String(sessionId))
+      await handle.dispose()
+    }
+  }
+
+  private async disposeLanes(record: RunRecord, lanes: readonly LaneRuntime[]): Promise<void> {
+    for (const lane of lanes) {
+      lane.detachObserver()
+      record.handles.delete(lane.handle)
+      record.snapshot.activeSessionIds = record.snapshot.activeSessionIds.filter(
+        id => id !== lane.evidence.sessionId,
+      )
+      await lane.handle.dispose()
+      if (!this.config.preserveWorktrees) {
+        await this.git.removeWorktree(record.resolvedCase.root, lane.worktree)
+      }
+    }
+  }
+
+  private async disposeRemainingHandles(record: RunRecord): Promise<void> {
+    const handles = [...record.handles]
+    record.handles.clear()
+    await Promise.allSettled(handles.map(handle => handle.dispose()))
+    record.snapshot.activeSessionIds = []
+    await this.persist(record)
+  }
+
+  private async readHistoricalSnapshots(): Promise<ProofRunSnapshot[]> {
+    let entries: string[]
+    try {
+      entries = await readdir(this.config.defaultRunRoot)
+    } catch {
+      return []
+    }
+    const snapshots = await Promise.all(entries
+      .filter(entry => /^[A-Za-z0-9._-]+$/.test(entry))
+      .map(async entry => {
+        try {
+          const parsed: unknown = JSON.parse(await readFile(
+            join(this.config.defaultRunRoot, entry, 'run.json'),
+            'utf8',
+          ))
+          return isProofRunSnapshot(parsed) ? this.asHistoricalSnapshot(parsed) : undefined
+        } catch {
+          return undefined
+        }
+      }))
+    return snapshots.filter((snapshot): snapshot is ProofRunSnapshot => snapshot !== undefined)
+  }
+
+  private asHistoricalSnapshot(snapshot: ProofRunSnapshot): ProofRunSnapshot {
+    if (terminal(snapshot.state)) return clone(snapshot)
+    const recovered = clone(snapshot)
+    recovered.state = 'ABORTED'
+    recovered.activeSessionIds = []
+    recovered.stopReason = 'DSH process ended before this run reached a terminal state'
+    recovered.completedAt ??= recovered.updatedAt
+    return recovered
+  }
+
+  private addTokenUsage(record: RunRecord, usage: ProofRunSnapshot['tokenUsage']): void {
+    record.snapshot.tokenUsage.inputTokens += usage.inputTokens
+    record.snapshot.tokenUsage.outputTokens += usage.outputTokens
+    record.snapshot.tokenUsage.cacheReadTokens += usage.cacheReadTokens
+    record.snapshot.tokenUsage.cacheWriteTokens += usage.cacheWriteTokens
+    record.snapshot.tokenUsage.reasoningTokens += usage.reasoningTokens
+    record.snapshot.tokenUsage.totalTokens += usage.totalTokens
+    record.snapshot.totalTokens = record.snapshot.tokenUsage.totalTokens
+  }
+
+  private worktreePath(id: string, epoch: number, lane: string): string {
+    return join(tmpdir(), 'tokens-as-parameters', id, `epoch-${epoch}`, lane)
+  }
+
+  private throwIfStopped(record: RunRecord): void {
+    if (record.controller.signal.aborted) throw new Error('proof run stopped')
+  }
+
+  private async transition(record: RunRecord, state: ProofRunSnapshot['state'], message: string): Promise<void> {
+    record.snapshot.state = state
+    record.snapshot.updatedAt = new Date().toISOString()
+    this.observer.setState(record.snapshot.runId, state)
+    await this.observer.emit({
+      runId: record.snapshot.runId,
+      type: `run/${state.toLocaleLowerCase()}`,
+      state,
+      message,
+      epoch: record.snapshot.epoch,
+    })
+    await this.persist(record)
+  }
+
+  private async finalize(
+    record: RunRecord,
+    state: Extract<ProofRunSnapshot['state'], 'PROVED' | 'DISPROVED' | 'UNKNOWN' | 'ABORTED' | 'FAILED'>,
+    reason: string,
+  ): Promise<void> {
+    if (terminal(record.snapshot.state) && record.snapshot.completedAt !== undefined) return
+    record.snapshot.state = state
+    record.snapshot.stopReason = reason
+    record.snapshot.completedAt = new Date().toISOString()
+    record.snapshot.updatedAt = record.snapshot.completedAt
+    record.snapshot.activeSessionIds = []
+    this.observer.setState(record.snapshot.runId, state)
+    await this.observer.emit({
+      runId: record.snapshot.runId,
+      type: 'run/finalized',
+      state,
+      message: reason,
+      epoch: record.snapshot.epoch,
+    })
+    await this.persist(record)
+  }
+
+  private persist(record: RunRecord): Promise<void> {
+    return this.observer.persistSnapshot(record.directory, record.snapshot)
+  }
+}
