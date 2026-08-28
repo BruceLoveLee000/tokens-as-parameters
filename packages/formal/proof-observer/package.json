@@ -1,0 +1,19 @@
+{
+  "name": "@tokens-as-parameters/proof-observer",
+  "version": "0.1.0",
+  "description": "Durable proof-run snapshots and event ledger linked to DSH sessions",
+  "publishConfig": { "access": "public" },
+  "repository": { "type": "git", "url": "git+https://github.com/BruceLoveLee000/tokens-as-parameters.git", "directory": "packages/formal/proof-observer" },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" }, "./package.json": "./package.json" },
+  "files": ["lib"],
+  "license": "Apache-2.0",
+  "dependencies": { "@tokens-as-parameters/proof-contracts": "0.1.0" },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-agent": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-session": "0.1.1-rc.2"
+  }
+}

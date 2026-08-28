@@ -4,9 +4,13 @@
 !.env.example
 node_modules/
 dist/
+lib/
+.build/
 coverage/
 *.log
-.lake/build/
+*.tgz
+.lake/
+.tokens-as-parameters/
 .worktrees/
 runs/
 tmp/

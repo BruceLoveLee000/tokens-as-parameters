@@ -19,9 +19,22 @@
 
 ## 当前仓库状态
 
-仓库仍处于初始化阶段，尚未提交包管理器 Workspace、构建命令或测试命令。
+仓库当前是由独立 Core、Formal、Lean、Tool 与 Bundle Package 组成的 npm/TypeScript Workspace，目标 DSH 版本为 `0.1.1-rc.2`。`packages/core/optimization` 拥有 Token Optimizer 接口；Bundle 只负责组合，不承载领域实现。使用 Node.js `^22.19` 或 `>=24`。
 
-不要在文档或自动化脚本中虚构命令。Monorepo 脚手架建立后，只能把已在干净 Checkout 中成功执行过的命令补充到本文件。
+第一版只支持实验模式。公开启动入口只能按 Case id 从 `benchmarks/` 解析已提交的 Case，物化隔离的 Run 工作区；不得接受或修改任意用户工作区。生产工作区模式由 GitHub Issue #4 跟踪，不能通过实验 API 零散引入。
+
+以下仓库命令已经成功执行：
+
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run build
+npm run check
+npm run pack:check
+```
+
+开发时先运行聚焦测试，提交前运行 `npm run check`。修改 Export、Bundle Patch 或 Package 文件后，必须重新运行 `npm run pack:check`。
 
 ## 仓库目录
 
@@ -35,6 +48,8 @@
 ## 架构规则
 
 - 科研领域契约和状态转移必须独立于 DeepSeek Harness API。
+- `packages/core/` 必须独立于 Formal、Lean、Chips 与 Benchmark Package，依赖只能从领域层指向 Core。
+- 可替换优化算法必须通过 `ctx.optimization` 注册；Formal Runtime 按稳定 ID 选择算法，不能直接导入具体 Optimizer。
 - 通过 DSH 公开的 Plugin、Service、Event、Tool 和 Agent Preset 完成集成。
 - 除非通过 ADR 证明公开扩展点无法满足需求，否则不得 Fork 或修改 DSH 官方 Agent Loop。
 - 在满足需求时，复用 DSH 官方 Code Agent、Session Log、工具执行、上下文管理和 Trajectory UI。

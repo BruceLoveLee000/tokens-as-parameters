@@ -1,0 +1,15 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types",
+    "tsBuildInfoFile": "../../../.build/ui-proof-run.tsbuildinfo",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["react"],
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../proof-contracts" }
+  ]
+}

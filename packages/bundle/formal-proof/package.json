@@ -1,0 +1,26 @@
+{
+  "name": "@tokens-as-parameters/bundle-formal-proof",
+  "version": "0.1.0",
+  "description": "DSH Profile Bundle composing token optimization with Lean formal-proof plugins",
+  "publishConfig": { "access": "public" },
+  "repository": { "type": "git", "url": "git+https://github.com/BruceLoveLee000/tokens-as-parameters.git", "directory": "packages/bundle/formal-proof" },
+  "type": "module",
+  "exports": {
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": ["cordis.patch.yml", "README.md", "README.zh-CN.md"],
+  "license": "Apache-2.0",
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "dependencies": {
+    "@tokens-as-parameters/core-optimization": "0.1.0",
+    "@tokens-as-parameters/optimizer-relative-reflection": "0.1.0",
+    "@tokens-as-parameters/proof-observer": "0.1.0",
+    "@tokens-as-parameters/proof-roles": "0.1.0",
+    "@tokens-as-parameters/proof-runtime": "0.1.0",
+    "@tokens-as-parameters/proof-verification": "0.1.0",
+    "@tokens-as-parameters/tool-proof-run": "0.1.0",
+    "@tokens-as-parameters/ui-proof-run": "0.1.0",
+    "@tokens-as-parameters/verifier-lean": "0.1.0"
+  }
+}

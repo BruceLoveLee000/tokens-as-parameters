@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "1.0",
+  "caseId": "lean-smoke-positive",
+  "claimScope": "lean-model-vs-spec",
+  "description": "Minimal positive Lean case for the experiment-mode infrastructure.",
+  "editableFiles": [
+    "verifier/SmokeProof.lean"
+  ],
+  "lockedInputs": [
+    {
+      "path": "inputs/SmokeModel.lean",
+      "sha256": "b3b9176b5328b120fb04cf44c52fd2e027569cf3e168919acf77c69366e7fbfb"
+    },
+    {
+      "path": "inputs/SmokeSpec.lean",
+      "sha256": "772bc5e56ce1fcfc1647d5fbdffd971cb615fc8aea79394a38f8041aa67c54f0"
+    }
+  ],
+  "lean": {
+    "workingDirectory": ".",
+    "proofFile": "verifier/SmokeProof.lean",
+    "theoremFile": "verifier/SmokeProof.lean",
+    "module": "verifier.SmokeProof",
+    "theoremName": "smoke_model_equiv_spec",
+    "theoremSignatureSha256": "26f2ca3b18870190a1143bb9832632d90c5a0374084fb5ca228685c8f1208dc6",
+    "obligations": [
+      "smoke_model_equiv_spec"
+    ],
+    "buildArgv": [
+      "lake",
+      "build",
+      "Smoke"
+    ],
+    "allowedAxioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ]
+  },
+  "provenance": {
+    "sourceRepository": "https://github.com/BruceLoveLee000/tokens-as-parameters",
+    "license": "Apache-2.0",
+    "notes": "Original synthetic infrastructure smoke test; not an FDIV capability result."
+  }
+}

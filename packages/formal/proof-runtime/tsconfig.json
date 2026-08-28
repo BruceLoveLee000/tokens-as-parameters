@@ -1,0 +1,14 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib", "tsBuildInfoFile": "../../../.build/proof-runtime.tsbuildinfo" },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../../core/optimization" },
+    { "path": "../../core/state-git" },
+    { "path": "../../core/telemetry" },
+    { "path": "../proof-contracts" },
+    { "path": "../proof-observer" },
+    { "path": "../proof-roles" },
+    { "path": "../proof-verification" }
+  ]
+}

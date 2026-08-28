@@ -19,9 +19,22 @@ Before changing code:
 
 ## Current Repository State
 
-The repository is in its initialization phase. No package manager workspace, build command, or test command has been committed yet.
+The repository is an npm/TypeScript workspace of independent Core, Formal, Lean, Tool, and Bundle packages targeting DSH `0.1.1-rc.2`. `packages/core/optimization` owns the token-optimizer seam; Bundles contain composition rather than domain implementation. Use Node.js `^22.19` or `>=24`.
 
-Do not invent commands in documentation or automation. When the monorepo scaffold is introduced, update this file with commands that have been executed successfully from a clean checkout.
+The first release is experiment-only. Public start controls resolve a committed Case id from `benchmarks/`, materialize an isolated Run workspace, and never accept or mutate an arbitrary user workspace. Production workspace mode is tracked in GitHub Issue #4 and must not be introduced piecemeal through the experiment API.
+
+The following repository commands have been executed successfully:
+
+```bash
+npm ci
+npm run typecheck
+npm test
+npm run build
+npm run check
+npm run pack:check
+```
+
+Run focused tests first while developing, then `npm run check` before committing. Revalidate `npm run pack:check` whenever exports, the Bundle patch, or package files change.
 
 ## Repository Map
 
@@ -35,6 +48,8 @@ Add nested `AGENTS.md` files only when a directory has development rules that ma
 ## Architecture Rules
 
 - Keep scientific domain contracts and state transitions independent from DeepSeek Harness APIs.
+- Keep `packages/core/` independent from Formal, Lean, Chips, and benchmark packages; dependencies point from domains toward Core.
+- Register replaceable optimization algorithms through `ctx.optimization`; Formal Runtime must select them by stable id rather than import a concrete Optimizer.
 - Integrate with DSH through documented plugins, services, events, tools, and agent presets.
 - Do not fork or patch the official DSH Agent Loop unless an accepted ADR demonstrates that no public extension point can meet the requirement.
 - Reuse the official DSH Code Agent, session log, tool execution, context management, and trajectory UI where they satisfy the requirement.

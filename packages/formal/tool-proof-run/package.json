@@ -1,0 +1,21 @@
+{
+  "name": "@tokens-as-parameters/tool-proof-run",
+  "version": "0.1.0",
+  "description": "Model-facing controls for discovering immutable cases and running formal-proof experiments",
+  "publishConfig": { "access": "public" },
+  "repository": { "type": "git", "url": "git+https://github.com/BruceLoveLee000/tokens-as-parameters.git", "directory": "packages/formal/tool-proof-run" },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" }, "./package.json": "./package.json" },
+  "files": ["lib"],
+  "license": "Apache-2.0",
+  "dependencies": { "@tokens-as-parameters/proof-runtime": "0.1.0" },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-agent": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-commands": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.1-rc.2"
+  }
+}
