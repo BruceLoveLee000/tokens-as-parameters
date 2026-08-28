@@ -3,4 +3,11 @@ open Lake DSL
 
 package «lean-smoke-positive» where
 
-lean_lib Smoke
+@[default_target]
+lean_lib Smoke where
+  roots := #[
+    `Smoke,
+    `inputs.SmokeModel,
+    `inputs.SmokeSpec,
+    `verifier.SmokeProof
+  ]

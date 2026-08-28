@@ -28,7 +28,8 @@
     ],
     "buildArgv": [
       "lake",
-      "build"
+      "build",
+      "Smoke"
     ],
     "allowedAxioms": [
       "propext",

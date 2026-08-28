@@ -19,6 +19,7 @@ test('experiment catalog exposes only complete versioned cases', async () => {
   const smoke = await resolveExperimentCase(benchmarkRoot, 'lean-smoke-positive')
   assert.equal(smoke.catalogPath, 'lean-smoke-positive')
   assert.equal(smoke.claimScope, 'lean-model-vs-spec')
+  assert.deepEqual(smoke.resolvedCase.manifest.lean.buildArgv, ['lake', 'build', 'Smoke'])
   await assert.rejects(
     resolveExperimentCase(benchmarkRoot, 'fdiv-r14-checkpoint'),
     /unknown experiment case/,
