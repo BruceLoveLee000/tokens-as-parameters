@@ -194,6 +194,11 @@ export class LeanVerifier implements ProofVerifier {
     baselineCommit?: string,
   ): Promise<ProofReceipt> {
     const manifest = resolvedCase.manifest
+    const leanWorkingDirectory = resolveInside(worktree, manifest.lean.workingDirectory)
+    await Promise.all([
+      rm(join(leanWorkingDirectory, '.lake', 'build'), { recursive: true, force: true }),
+      rm(join(leanWorkingDirectory, '.lake', 'config'), { recursive: true, force: true }),
+    ])
     const proofPath = resolveInside(worktree, manifest.lean.proofFile)
     const theoremPath = resolveInside(worktree, manifest.lean.theoremFile)
     const proofSource = await readFile(proofPath, 'utf8')
@@ -255,7 +260,7 @@ export class LeanVerifier implements ProofVerifier {
     }
     const build = await this.runner.run({
       argv: manifest.lean.buildArgv,
-      cwd: resolve(worktree, manifest.lean.workingDirectory),
+      cwd: leanWorkingDirectory,
       timeoutMs: 30 * 60_000,
       maxOutputBytes: 8_000_000,
       ...(signal === undefined ? {} : { signal }),

@@ -138,6 +138,8 @@ Reflector 是 Agent，不是一次 Completion。默认上下文包含参数注�
 6. 每个计数 Obligation 都有符合白名单的 `#print axioms` 结果；
 7. 最终验收关闭全部 Obligation，包括顶层定理。
 
+每次信任检查前，Verifier 都会删除该 Lane 先前的 `.lake/build` 与 `.lake/config` 产物，并从授权源码重新构建。因此，编译器生成状态既不会被误判成越权源码修改，也不能成为模型可复用的证明作弊产物。
+
 声明级整合会同时携带新关闭的命名 Obligation，以及通过 Lean 与 Axiom 检查的新增/修改 Helper Theorem；组合文件会被重新检查，绝不使用分支 Merge 充当证明合并器。白盒审查只有否决权：它可以因语义弱化或 Reward Hacking 拒绝确定性成功，但不能凭空制造成功。
 
 Claim Scope 必须显式。`lean-model-vs-spec` 在缺少独立版本化 RTL-to-Lean 证书或 Adapter 时，不代表 RTL Fidelity。

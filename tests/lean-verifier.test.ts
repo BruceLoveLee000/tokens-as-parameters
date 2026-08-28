@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -157,6 +157,22 @@ test('candidate changes outside the declared editable surface are rejected', asy
   const receipt = await new LeanVerifier(runner).check(resolved, root, 0, undefined, 'deadbeef')
   assert.equal(receipt.finalAccepted, false)
   assert.equal(receipt.findings.some(finding => finding.kind === 'unauthorized-change'), true)
+})
+
+test('verifier removes prior Lean build outputs before checking trust', async () => {
+  const { root, resolved } = await fixture()
+  const buildArtifact = join(root, 'formal', '.lake', 'build', 'lib', 'Proof.olean')
+  const configArtifact = join(root, 'formal', '.lake', 'config', 'lakefile.olean')
+  await mkdir(join(root, 'formal', '.lake', 'build', 'lib'), { recursive: true })
+  await mkdir(join(root, 'formal', '.lake', 'config'), { recursive: true })
+  await writeFile(buildArtifact, 'untrusted build output', 'utf8')
+  await writeFile(configArtifact, 'untrusted Lake config', 'utf8')
+
+  const receipt = await new LeanVerifier(new FakeRunner()).check(resolved, root)
+
+  assert.equal(receipt.finalAccepted, true)
+  await assert.rejects(access(buildArtifact))
+  await assert.rejects(access(configArtifact))
 })
 
 test('checker-clean helper-only progress is checkpointable and semantically transplantable', async () => {

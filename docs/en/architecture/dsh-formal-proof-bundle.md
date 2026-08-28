@@ -138,6 +138,8 @@ Model prose, shell claims, reflection, and reviewer approval are all untrusted. 
 6. each counted obligation has an allowed `#print axioms` result;
 7. final acceptance closes every declared obligation, including the top theorem.
 
+Before every trust check, the Verifier removes the lane's prior `.lake/build` and `.lake/config` outputs and rebuilds from the authorized sources. Generated compiler state therefore cannot become either an unauthorized-path false positive or a reusable model-controlled proof artifact.
+
 Declaration-level consolidation carries both newly closed named obligations and changed/new helper theorems that passed Lean and axiom checks. It rechecks the combined file and never uses branch merge as a proof combiner. White-box review is veto-only: it can reject deterministic success for semantic weakening or reward hacking, but it cannot create a success.
 
 The claim scope remains explicit. `lean-model-vs-spec` does not imply RTL fidelity without an independently versioned RTL-to-Lean certificate or adapter.
