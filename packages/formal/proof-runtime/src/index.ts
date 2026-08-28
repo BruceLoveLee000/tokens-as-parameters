@@ -970,6 +970,7 @@ export default class ProofRunService extends Service {
   ): Promise<void> {
     record.snapshot.finalReceipt = receipt
     if (!record.snapshot.config.search.whiteboxReview) {
+      await this.promoteFinalCandidate(record, worktree, receipt)
       await this.finalize(record, 'PROVED', 'Lean checker accepted the complete theorem; white-box review disabled by experiment config')
       return
     }
@@ -1019,6 +1020,7 @@ export default class ProofRunService extends Service {
       const review: WhiteboxReview | undefined = capture?.review()
       if (review !== undefined) record.snapshot.whiteboxReview = review
       if (review?.approved === true) {
+        await this.promoteFinalCandidate(record, worktree, receipt)
         await this.finalize(record, 'PROVED', 'Lean checker and white-box review accepted the complete theorem')
       } else {
         await this.finalize(record, 'UNKNOWN', review === undefined
@@ -1032,6 +1034,20 @@ export default class ProofRunService extends Service {
       await handle.dispose()
       await this.persist(record)
     }
+  }
+
+  private async promoteFinalCandidate(
+    record: RunRecord,
+    worktree: string,
+    receipt: ProofReceipt,
+  ): Promise<void> {
+    if (!receipt.finalAccepted || receipt.obligationsClosed !== receipt.obligationsTotal) {
+      throw new Error('cannot promote an incomplete Lean receipt as the trusted final candidate')
+    }
+    const commit = await this.git.head(worktree, record.controller.signal)
+    record.snapshot.trustedCommit = commit
+    record.snapshot.searchBaseCommit = commit
+    record.snapshot.trustedObligationsClosed = receipt.obligationsClosed
   }
 
   private async disposeLanes(record: RunRecord, lanes: readonly LaneRuntime[]): Promise<void> {
@@ -1153,6 +1169,12 @@ export default class ProofRunService extends Service {
     reason: string,
   ): Promise<void> {
     if (terminal(record.snapshot.state) && record.snapshot.completedAt !== undefined) return
+    if (state === 'PROVED' && (
+      record.snapshot.finalReceipt?.finalAccepted !== true
+      || record.snapshot.trustedObligationsClosed !== record.snapshot.obligationsTotal
+    )) {
+      throw new Error('PROVED requires a final accepted receipt and complete trusted progress')
+    }
     record.snapshot.state = state
     record.snapshot.stopReason = reason
     record.snapshot.completedAt = new Date().toISOString()
