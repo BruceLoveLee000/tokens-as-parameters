@@ -14,7 +14,9 @@ Tokens as Parameters 是一个实验性研究系统，用于验证：经过证�
 
 ## 状态
 
-研究预览版。第一套 DSH 原生形式化证明系统已经重构为相互独立的 Core、Formal、Lean、Tool 与 Bundle Workspace Package，目标是 DSH `0.1.1-rc.2` 公开扩展接口。系统包含隔离的并行 Prover、Verifier 门控的 Git Checkpoint、可替换的 Token Optimizer、声明级语义合并、持久 Run 证据以及最终白盒审查。
+研究预览版。第一版有意限定为**仅支持实验模式**：只运行仓库内版本化的不可变 Case；每次调用都会物化新的 Run 专属 Git 工作区；不会修改 Case，也不会把结果自动合回 Case。针对用户指定工作区的生产模式推迟到 [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)。
+
+第一套 DSH 原生形式化证明系统已经重构为相互独立的 Core、Formal、Lean、Tool 与 Bundle Workspace Package，目标是 DSH `0.1.1-rc.2` 公开扩展接口。系统包含隔离的并行 Prover、Verifier 门控的 Git Checkpoint、可替换的 Token Optimizer、声明级语义合并、持久 Run 证据以及最终白盒审查。
 
 ## 核心研究问题
 
@@ -44,7 +46,13 @@ dsh plugin --profile web add ./tokens-as-parameters-*.tgz
 dsh web
 ```
 
-在 DSH Code Agent 对话中，让 Agent 使用 `proof_run_start`，并传入包含 `case.json` 的 Git 版本化 Case 路径。官方 DSH Session UI 继续承担轨迹展示；Bundle 还会为每个 Run 持久化 `run.json` 与 `events.jsonl`。
+从本仓库 Checkout 启动 DSH，使默认 Case Catalog 指向 `./benchmarks`，然后在 DSH Code Agent 对话中输入：
+
+```text
+/chip_proof lean-smoke-positive
+```
+
+集成层会把这个约定转换成模型可见的 `chip_proof({ case_id })` Tool。Runtime 只接受精确注册的 Case id，不接受任意工作区路径。它会检查 Case 已提交，把 Case 复制到 `.tokens-as-parameters/runs/<runId>/workspace`，再次校验锁定 Hash，并在任何 Prover 启动前初始化新的 Git Baseline。官方 DSH Session UI 继续承担轨迹展示；Bundle 还会为每个 Run 持久化 `run.json` 与 `events.jsonl`。
 
 进一步阅读：[Core 架构与 Optimizer Provider 契约](docs/zh-CN/architecture/token-optimization-core.md)、[Bundle 指南](packages/bundle/formal-proof/README.zh-CN.md)、[形式化证明架构](docs/zh-CN/architecture/dsh-formal-proof-bundle.md)和 [FDIV 复现实验协议](experiments/fdiv-reproduction/README.zh-CN.md)。
 
@@ -53,6 +61,7 @@ dsh web
 - 使用打包后的 Bundle 完整复跑已完成许可证确认的 FDIV R14 Checkpoint；
 - 增加面向未来 Reward 的上下文整合，而不是普通摘要；
 - 对单路、独立并行、自反思、组间反思、持久 Insight、上下文整合执行等预算消融实验。
+- 仅在实验链路稳定后增加用户工作区生产模式（[Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)）。
 
 ## 仓库目录
 

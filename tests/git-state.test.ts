@@ -132,3 +132,25 @@ test('reflection state records consumed lane tips without merging their proof tr
     reflection.commit,
   )
 })
+
+test('experiment snapshot requires a clean source and initializes an isolated baseline', async () => {
+  const source = await mkdtemp(join(tmpdir(), 'tap-experiment-source-test-'))
+  await git(source, 'init', '-q')
+  await git(source, 'config', 'user.name', 'Test User')
+  await git(source, 'config', 'user.email', 'test@example.invalid')
+  await writeFile(join(source, 'case.json'), '{}\n', 'utf8')
+  await git(source, 'add', 'case.json')
+  await git(source, 'commit', '-q', '-m', 'case baseline')
+
+  const state = new GitState(new LocalRunner())
+  const sourceCommit = await state.requireCleanCommit(source)
+  assert.equal(sourceCommit, await git(source, 'rev-parse', 'HEAD'))
+  await writeFile(join(source, 'case.json'), '{ "dirty": true }\n', 'utf8')
+  await assert.rejects(state.requireCleanCommit(source), /uncommitted changes/)
+
+  const isolated = await mkdtemp(join(tmpdir(), 'tap-experiment-isolated-test-'))
+  await writeFile(join(isolated, 'case.json'), '{}\n', 'utf8')
+  const isolatedCommit = await state.initializeRepository(isolated, 'experiment baseline')
+  assert.equal(isolatedCommit, await git(isolated, 'rev-parse', 'HEAD'))
+  assert.equal(await git(isolated, 'status', '--porcelain'), '')
+})

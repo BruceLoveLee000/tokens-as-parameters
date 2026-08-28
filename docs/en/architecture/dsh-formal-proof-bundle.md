@@ -6,10 +6,14 @@
 
 Formal proof is the first domain application of the Token Optimization Core. `proof-roles` defines the Formal Prover Agent architecture; Core does not. The installable Bundle composes this Agent with an autonomous Reflector, deterministic Lean verification, Git-backed state, observability, and user controls over the official DSH Code Agent and Agent Loop.
 
+The first release has one deliberate mode: reproducible experiments over immutable, repository-owned Cases. Arbitrary user workspaces are outside this boundary and tracked in [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4).
+
 ```mermaid
 flowchart TB
-  User[User in official DSH Web] --> Tools[proof_run start / status / list / stop]
+  User[User in official DSH Web] --> Tools[chip_proof / cases / status / list / stop]
   Tools --> Runtime[ProofRunService]
+  Catalog[Committed benchmark Case catalog] --> Materializer[Run workspace materializer]
+  Materializer --> Runtime
 
   subgraph Definition[Formal Agent definition - proof-roles]
     Fixed[Fixed trust and editing rules]
@@ -55,7 +59,7 @@ The Bundle contains composition only. It does not reimplement the Code Agent, Ag
 
 | Surface | First-release definition | Feedback status |
 |---|---|---|
-| immutable task | locked manifest, theorem, model/spec inputs, and user run request | input; never updated by reflection |
+| immutable task | committed Case identity, locked manifest, theorem, model/spec inputs, and user run request | input; never updated by reflection |
 | fixed system policy | editable surface, trust boundary, anti-reward-hacking rules, Insight behavior | frozen in this experiment |
 | `task.memory` | concise verifier-backed facts, reusable discoveries, and invalidated assumptions | selectable per Agent instance; enabled by default |
 | `task.plan` | shared proof-search policy and prioritization | selectable; enabled by default |
@@ -69,7 +73,7 @@ The three parameter sections have stable context positions. Before each Prover s
 
 ## Run and epoch flow
 
-Every start creates a new `runId`; separate Runs do not inherit mutable proof or parameter state. Within a Run, state advances across Epochs.
+Every start creates a new `runId`; separate Runs do not inherit mutable proof or parameter state. The source Case is copied into `<runRoot>/<runId>/workspace`, generated/dependency directories are excluded, locked hashes are checked again, and a new Git repository freezes the Run baseline. Within a Run, state advances across Epochs. No candidate is written back to the source Case.
 
 ```mermaid
 sequenceDiagram
@@ -81,7 +85,8 @@ sequenceDiagram
   participant R as Reflector Agent
   participant G as Git / run ledger
 
-  U->>C: start(versioned case, budget, rollout count)
+  U->>C: start(registered case id, budget, rollout count)
+  C->>G: verify clean source commit; copy Case; initialize Run Git baseline
   C->>L: preflight frozen baseline
   loop until proof or terminal budget
     C->>P: parameter state vN + isolated sessions/worktrees
@@ -143,10 +148,12 @@ The claim scope remains explicit. `lean-model-vs-spec` does not imply RTL fideli
 | `verifier-lean` | deterministic Lean checks and named-declaration consolidation |
 | `core-optimization` | domain-neutral parameter/feedback/update contracts |
 | `optimizer-relative-reflection` | replaceable semantic Optimizer Agent |
-| `tool-proof-run` | user-facing lifecycle controls |
+| `tool-proof-run` | experiment Case discovery and user-facing lifecycle controls |
 
 ## FDIV experience review
 
 The refactor was compared against the successful assisted FDIV 9/14 to 14/14 trace, not merely against the previous package API. The detailed [capability review](fdiv-capability-review.md) distinguishes retained behavior, deliberate scope changes, and unreproduced or missing capabilities.
 
 The important conclusion is bounded: the new implementation retains the core search-and-trust loop, restores checker-clean helper-only checkpoints across Epochs, and improves parameter attribution, but it is not yet evidence-equivalent to the historical system. In particular, the FDIV 14/14 case has not been rerun through this Bundle and certified `DISPROVED` handling is absent.
+
+Production workspace behavior—dirty Git state, non-Git initialization, namespaced refs, candidate patch application, and cleanup—is intentionally deferred to [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4), rather than weakening the experiment contract with a partially defined second mode.

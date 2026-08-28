@@ -1,0 +1,4 @@
+{
+  "expectedVerdict": "PROVED",
+  "reason": "Nat.add_zero closes the frozen model-versus-spec theorem without additional axioms."
+}

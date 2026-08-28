@@ -8,7 +8,7 @@ English | [简体中文](README.zh-CN.md)
 
 - DSH packages: exactly `0.1.1-rc.2` for this research-preview release.
 - Node.js: `^22.19` or `>=24`.
-- Case repository: Git worktree support and a Lake-managed Lean project.
+- Experiment catalog: this repository's `benchmarks/` tree, with committed Case snapshots and Lake-managed Lean projects.
 
 The exact DSH peer versions are intentional. Public extension APIs are still pre-release, so compatibility must be revalidated before widening the range.
 
@@ -38,13 +38,13 @@ The package manifest's `dsh.bundle.patch` composes eight runtime plugins:
 - `verifier-lean`: Lean Provider for deterministic checks and declaration consolidation;
 - `proof-roles`: scoped Prover and read-only Reviewer prompts/tools;
 - `proof-runtime`: background lifecycle, isolated worktrees/sessions, checker gates, consolidation, and stop policy;
-- `tool-proof-run`: `proof_run_start`, `proof_run_status`, `proof_run_list`, and `proof_run_stop`.
+- `tool-proof-run`: experiment-only `chip_proof`, `chip_proof_cases`, `proof_run_status`, `proof_run_list`, and `proof_run_stop`.
 
 Libraries such as `proof-contracts`, `core-state-git`, and `core-telemetry` are dependencies of those plugins rather than Bundle rows.
 
 ## Case contract
 
-The case root must be a Git repository. By default the runtime reads `<case-root>/case.json`.
+Every runnable directory under the configured `benchmarkRoot` contains `case.json`. The runtime discovers it by exact `caseId`; callers cannot provide an arbitrary filesystem path. The Case directory must be clean at a Git commit when a Run starts.
 
 ```json
 {
@@ -73,21 +73,19 @@ The case root must be a Git repository. By default the runtime reads `<case-root
 }
 ```
 
-Replace every example hash and commit before running. `editableFiles` and `lockedInputs` must not overlap. The theorem signature is frozen separately so rewriting the theorem into an easier claim cannot earn progress.
+Replace every example hash before committing a Case. `editableFiles` and `lockedInputs` must not overlap. The theorem signature is frozen separately so rewriting the theorem into an easier claim cannot earn progress.
+
+For each invocation, Runtime copies the Case—excluding `.git`, `.lake`, generated builds, dependencies, and previous Run state—to `.tokens-as-parameters/runs/<runId>/workspace`. It validates the copied manifest and locked hashes, initializes a fresh Git repository, and uses that commit as the only Run baseline. The source Case is never writable proof state.
 
 ## Start and observe a run
 
-Ask the DSH Code Agent to invoke:
+From a DSH Code Agent conversation, use the experiment convention:
 
 ```text
-proof_run_start({
-  case_root: "/absolute/path/to/versioned-case",
-  rollouts: 2,
-  max_parallel: 2,
-  max_lane_tokens: 20000000,
-  total_token_budget: 300000000
-})
+/chip_proof lean-smoke-positive
 ```
+
+The installed system-prompt section instructs the Code Agent to translate this into `chip_proof({ case_id: "lean-smoke-positive" })`. Use `chip_proof_cases` to inspect available ids. Search budgets remain optional `chip_proof` arguments. This is a conversation convention over the DSH Tool API in `0.1.1-rc.2`, not a second Agent Loop or a client-side slash-command implementation.
 
 Each invocation receives a new immutable `runId`. Refreshing the Web page does not stop the background run. Use `proof_run_status` or `proof_run_list` after reconnecting; use `proof_run_stop` for an explicit cancellation. Historical snapshots under the default run root are rediscovered after process restart. A formerly active snapshot is then reported as `ABORTED`, because this release does not pretend to resume an Agent Loop that the process no longer owns.
 
@@ -113,10 +111,12 @@ After comparison, the controller creates a multi-parent Reflection commit. Its t
 
 The Formal Prover Agent registers `task.memory`, `task.plan`, and one `lane.<id>.route` parameter per rollout; their trainability is selected at Agent instantiation rather than hard-coded in Core. Every Session records the exact revisions it consumed. The Reflector can inspect parameter usage as well as trajectory and Git evidence, then atomically replace any justified subset while preserving omitted parameters.
 
-`proof_run_start` exposes this experiment boundary through `feedback_memory`, `feedback_plan`, and `feedback_routes`. At least one must remain enabled when reflection is enabled.
+`chip_proof` exposes this experiment boundary through `feedback_memory`, `feedback_plan`, and `feedback_routes`. At least one must remain enabled when reflection is enabled.
 
 After the reflection soft-token boundary, inspection tools disappear and a current-step message asks the agent to call `submit_reflection`. A valid submission ends the turn; a second invalid submission falls back to a neutral update. Neither Core nor the generic Bundle hard-codes theorem assignments or FDIV-specific proof hints.
 
 ## Current limitation
 
 The packaged mechanism has unit and contract coverage, but the historical FDIV 14/14 result has not yet been rerun through this Bundle. Follow the versioned [reproduction protocol](../../../experiments/fdiv-reproduction/README.md) and read the [capability regression review](../../../docs/en/architecture/fdiv-capability-review.md); do not cite the old result as a Bundle reproduction until its evidence gate is complete.
+
+This release has no production workspace mode. User-selected repositories, dirty-worktree handling, and explicit result application are tracked in [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4).

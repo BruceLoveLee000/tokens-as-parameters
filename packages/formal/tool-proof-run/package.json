@@ -1,7 +1,7 @@
 {
   "name": "@tokens-as-parameters/tool-proof-run",
   "version": "0.1.0",
-  "description": "Model-facing controls for starting, observing, listing, and stopping proof runs",
+  "description": "Model-facing controls for discovering immutable cases and running formal-proof experiments",
   "publishConfig": { "access": "public" },
   "repository": { "type": "git", "url": "git+https://github.com/BruceLoveLee000/tokens-as-parameters.git", "directory": "packages/formal/tool-proof-run" },
   "type": "module",

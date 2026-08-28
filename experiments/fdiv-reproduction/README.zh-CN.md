@@ -22,6 +22,8 @@
 
 不得为了让 Plugin 加载而修改 Benchmark。如果历史 Manifest 格式不同，应新增一个版本化 `case.json` 适配 Commit，同时保持原定理和冻结文件不变。
 
+第一版 Runtime 不接受外部 Checkout 路径。完成来源与许可证门禁后，把适配后的 Case 提交到 `benchmarks/`，确认 `chip_proof_cases` 能列出其精确 id，并用 `/chip_proof <case-id>` 启动每个实验条件。每次调用都会物化新的 Run Baseline，因此不同 Run 不会继承旧证明状态。
+
 ## 最小运行矩阵
 
 | 条件 | Rollouts | 跨 Lane 反思 | 持久 Insight | 语义合并 |

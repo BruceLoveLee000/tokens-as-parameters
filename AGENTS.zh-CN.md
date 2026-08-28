@@ -21,6 +21,8 @@
 
 仓库当前是由独立 Core、Formal、Lean、Tool 与 Bundle Package 组成的 npm/TypeScript Workspace，目标 DSH 版本为 `0.1.1-rc.2`。`packages/core/optimization` 拥有 Token Optimizer 接口；Bundle 只负责组合，不承载领域实现。使用 Node.js `^22.19` 或 `>=24`。
 
+第一版只支持实验模式。公开启动入口只能按 Case id 从 `benchmarks/` 解析已提交的 Case，物化隔离的 Run 工作区；不得接受或修改任意用户工作区。生产工作区模式由 GitHub Issue #4 跟踪，不能通过实验 API 零散引入。
+
 以下仓库命令已经成功执行：
 
 ```bash

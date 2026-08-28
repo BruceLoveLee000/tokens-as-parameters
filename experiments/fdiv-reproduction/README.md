@@ -22,6 +22,8 @@ Before a run, record in an experiment manifest:
 
 Do not mutate the benchmark to make the plugin load. If its historical manifest differs, add a new versioned `case.json` adapter commit while preserving the original theorem and locked files.
 
+The first-release Runtime does not accept an external checkout path. After provenance and licensing are complete, commit the adapted Case under `benchmarks/`, verify that `chip_proof_cases` lists its exact id, and start every condition with `/chip_proof <case-id>`. Each invocation materializes a fresh Run baseline, so Runs cannot inherit prior proof state.
+
 ## Minimum run matrix
 
 | Condition | Rollouts | Cross-lane reflection | Persistent insight | Semantic consolidation |

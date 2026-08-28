@@ -8,7 +8,7 @@
 
 - DSH Package：当前研究预览版精确锁定为 `0.1.1-rc.2`；
 - Node.js：`^22.19` 或 `>=24`；
-- Case 仓库：支持 Git Worktree，并包含由 Lake 管理的 Lean 工程。
+- 实验 Catalog：使用本仓库 `benchmarks/`，其中 Case 必须是已提交的快照，并包含由 Lake 管理的 Lean 工程。
 
 精确锁定 DSH Peer Version 是有意为之。公开扩展接口仍处于预发布阶段，扩大版本范围前必须重新验证兼容性。
 
@@ -38,31 +38,29 @@ Package Manifest 中的 `dsh.bundle.patch` 会组合八个运行时插件：
 - `verifier-lean`：负责确定性检查与声明级整合的 Lean Provider；
 - `proof-roles`：作用域隔离的 Prover，以及只读 Reviewer 的 Prompt/Tool；
 - `proof-runtime`：后台生命周期、隔离 Worktree/Session、Checker 门控、语义合并与停止策略；
-- `tool-proof-run`：`proof_run_start`、`proof_run_status`、`proof_run_list` 和 `proof_run_stop`。
+- `tool-proof-run`：仅用于实验的 `chip_proof`、`chip_proof_cases`、`proof_run_status`、`proof_run_list` 和 `proof_run_stop`。
 
 `proof-contracts`、`core-state-git` 与 `core-telemetry` 等库是上述插件的依赖，不是 Bundle Row。
 
 ## Case 契约
 
-Case 根目录必须是 Git 仓库。Runtime 默认读取 `<case-root>/case.json`。
+配置的 `benchmarkRoot` 下每个可运行目录都包含 `case.json`。Runtime 按精确 `caseId` 发现 Case；调用方不能传入任意文件系统路径。Run 启动时，Case 目录必须在 Git Commit 上保持干净。
 
-`case.json` 的完整示例见[英文文档](README.md#case-contract)，字段名和 JSON 内容无需翻译。运行前必须替换其中所有示例 Hash 和 Commit。
+`case.json` 的完整示例见[英文文档](README.md#case-contract)，字段名和 JSON 内容无需翻译。提交 Case 前必须替换其中所有示例 Hash。
 
 `editableFiles` 与 `lockedInputs` 不得重叠。顶层定理签名会单独冻结，因此把定理改写成更容易的命题不能获得进展。
 
+每次调用时，Runtime 都会把 Case 复制到 `.tokens-as-parameters/runs/<runId>/workspace`，并排除 `.git`、`.lake`、生成 Build、依赖和历史 Run 状态。随后重新校验 Manifest 与锁定 Hash，初始化新的 Git 仓库，并把该 Commit 作为唯一 Run Baseline。源 Case 永远不是可写证明状态。
+
 ## 启动与观察 Run
 
-让 DSH Code Agent 调用：
+在 DSH Code Agent 对话中使用实验约定：
 
 ```text
-proof_run_start({
-  case_root: "/absolute/path/to/versioned-case",
-  rollouts: 2,
-  max_parallel: 2,
-  max_lane_tokens: 20000000,
-  total_token_budget: 300000000
-})
+/chip_proof lean-smoke-positive
 ```
+
+安装的 System Prompt Section 会指导 Code Agent 把它转换为 `chip_proof({ case_id: "lean-smoke-positive" })`；使用 `chip_proof_cases` 查看可用 id。搜索预算仍可作为 `chip_proof` 的可选参数。这是 `0.1.1-rc.2` DSH Tool API 上的对话约定，不是第二套 Agent Loop，也不是客户端 Slash Command 实现。
 
 每次调用都会获得新的不可变 `runId`。刷新 Web 页面不会停止后台 Run；重新连接后使用 `proof_run_status` 或 `proof_run_list` 查询，使用 `proof_run_stop` 显式取消。进程重启后会重新发现默认 Run Root 下的历史 Snapshot；如果某个历史 Snapshot 原来仍是活动状态，系统会把它报告为 `ABORTED`，因为当前版本不会假装恢复已经失去所有权的 Agent Loop。
 
@@ -88,10 +86,12 @@ Reflector 是自主规划的 DSH Agent，而不是一次性摘要调用。默认
 
 Formal Prover Agent 注册 `task.memory`、`task.plan` 以及每个 Rollout 的 `lane.<id>.route`；是否接受反馈由 Agent 实例化时选择，而不是硬编码在 Core 中。每个 Session 都记录自己消费的精确 Revision。Reflector 可以检查参数使用、轨迹与 Git 证据，再原子替换有证据支撑的任意参数子集，并保留省略参数。
 
-`proof_run_start` 通过 `feedback_memory`、`feedback_plan` 与 `feedback_routes` 暴露该实验边界。启用反思时至少要开放其中一类参数。
+`chip_proof` 通过 `feedback_memory`、`feedback_plan` 与 `feedback_routes` 暴露该实验边界。启用反思时至少要开放其中一类参数。
 
 超过反思 Soft Token 边界后，检查工具会被移除，并通过当前 Step 的消息要求 Agent 调用 `submit_reflection`。合法提交会结束 Turn；第二次非法提交将退化为中性更新。Core 与通用 Bundle 都不会硬编码定理分工或 FDIV 特定证明提示。
 
 ## 当前限制
 
 打包后的机制已经具备单元测试与契约测试，但历史 FDIV 14/14 结果尚未通过这个 Bundle 重新运行。必须遵循版本化的[复现实验协议](../../../experiments/fdiv-reproduction/README.zh-CN.md)，并阅读[能力回退审查](../../../docs/zh-CN/architecture/fdiv-capability-review.md)；在证据门完成前，不得把旧结果表述为 Bundle 已复现。
+
+本版本没有生产工作区模式。用户指定仓库、脏工作区治理和显式结果 Apply 由 [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4) 跟踪。

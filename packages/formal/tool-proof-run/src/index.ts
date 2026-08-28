@@ -22,19 +22,18 @@ export function apply(ctx: Context): void {
     name: 'tokens-as-parameters:proof-run-controls',
     order: 116,
     text: [
-      'Formal proof runs are durable background jobs controlled by proof_run_start, proof_run_status, proof_run_list, and proof_run_stop.',
+      'Formal proof runs are experiment-only durable background jobs controlled by chip_proof, chip_proof_cases, proof_run_status, proof_run_list, and proof_run_stop.',
+      'When the user writes /chip_proof <case-id>, call chip_proof with that exact registered case id. Never substitute an arbitrary workspace path.',
       'Do not claim a proof from a prover message. Only a terminal PROVED snapshot with a controller-owned Lean receipt is accepted.',
-      'Starting a run creates independent DSH sessions for prover lanes, reflection, and white-box review. Report the runId immediately so the user can inspect it later.',
+      'Starting an experiment materializes the immutable repository case into a Run-owned Git workspace, then creates independent DSH sessions for prover lanes, reflection, and white-box review. Report the runId immediately so the user can inspect it later.',
     ].join('\n'),
   })
 
   ctx.tools.register(defineTool({
-    name: 'proof_run_start',
-    description: 'Start one background verifier-guided formal-proof run from a versioned case manifest.',
+    name: 'chip_proof',
+    description: 'Start one background verifier-guided experiment from a registered immutable benchmark case.',
     parameters: {
-      case_root: { type: 'string', required: true, description: 'Absolute or workspace-relative case repository path.' },
-      manifest_path: { type: 'string', description: 'Case-relative manifest path, default case.json.' },
-      baseline_commit: { type: 'string', description: 'Optional exact Git commit override.' },
+      case_id: { type: 'string', required: true, description: 'Exact case id returned by chip_proof_cases.' },
       provider: { type: 'string', description: 'DSH model provider, default deepseek-official.' },
       model: { type: 'string', description: 'Model id, default deepseek-v4-flash.' },
       optimizer: { type: 'string', description: 'Registered token Optimizer id, default relative-reflection.' },
@@ -80,13 +79,21 @@ export function apply(ctx: Context): void {
           ...(args.reflection_soft_tokens === undefined ? {} : { softTokenBudget: args.reflection_soft_tokens }),
         },
       }
-      const snapshot = await ctx.proofRuns.start({
-        caseRoot: args.case_root,
-        ...(args.manifest_path === undefined ? {} : { manifestPath: args.manifest_path }),
-        ...(args.baseline_commit === undefined ? {} : { baselineCommit: args.baseline_commit }),
+      const snapshot = await ctx.proofRuns.startExperiment({
+        caseId: args.case_id,
         search,
       }, requireAgent(exec.agent))
       return JSON.stringify(snapshot)
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'chip_proof_cases',
+    description: 'List immutable benchmark cases available to the experiment-only formal-proof runtime.',
+    parameters: {},
+    output: STRING_OUTPUT,
+    async execute() {
+      return JSON.stringify(await ctx.proofRuns.listExperimentCases())
     },
   }))
 

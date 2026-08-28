@@ -9,7 +9,7 @@ lib/
 coverage/
 *.log
 *.tgz
-.lake/build/
+.lake/
 .tokens-as-parameters/
 .worktrees/
 runs/

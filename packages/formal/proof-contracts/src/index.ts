@@ -121,11 +121,8 @@ export const ProofSearchConfigSchema = z.object({
 
 export type ProofSearchConfig = z.infer<typeof ProofSearchConfigSchema>
 
-export const StartProofRunSchema = z.object({
-  caseRoot: z.string().trim().min(1),
-  manifestPath: z.string().trim().min(1).default('case.json'),
-  runRoot: z.string().trim().min(1).optional(),
-  baselineCommit: z.string().regex(/^[a-f0-9]{7,40}$/).optional(),
+export const StartProofExperimentSchema = z.object({
+  caseId: z.string().trim().min(1).max(160),
   search: ProofSearchConfigSchema.default({
     provider: 'deepseek-official',
     model: 'deepseek-v4-flash',
@@ -145,9 +142,23 @@ export const StartProofRunSchema = z.object({
     },
     whiteboxReview: true,
   }),
-})
+}).strict()
 
-export type StartProofRun = z.infer<typeof StartProofRunSchema>
+export type StartProofExperiment = z.infer<typeof StartProofExperimentSchema>
+
+export interface ExperimentCaseSummary {
+  caseId: string
+  claimScope: CaseManifest['claimScope']
+  description: string
+  catalogPath: string
+}
+
+export interface ProofExperimentSource {
+  catalogPath: string
+  manifestSha256: string
+  sourceCommit: string
+  workspace: 'workspace'
+}
 
 export type RunState =
   | 'PREPARING'
@@ -234,6 +245,8 @@ export interface ProofRunSnapshot {
   runId: string
   caseId: string
   claimScope: CaseManifest['claimScope']
+  mode: 'experiment'
+  experiment: ProofExperimentSource
   state: RunState
   createdAt: string
   updatedAt: string
@@ -254,7 +267,7 @@ export interface ProofRunSnapshot {
   whiteboxReview?: WhiteboxReview
   stopReason?: string
   error?: string
-  config: StartProofRun
+  config: StartProofExperiment
 }
 
 export interface ProofDomainEvent {

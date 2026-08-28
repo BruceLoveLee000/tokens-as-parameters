@@ -24,6 +24,7 @@
     - id: tap-proof-runtime
       name: '@tokens-as-parameters/proof-runtime'
       config:
+        benchmarkRoot: ./benchmarks
         preserveWorktrees: true
 
     - id: tap-proof-run-tools

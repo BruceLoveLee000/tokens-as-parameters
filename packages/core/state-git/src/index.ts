@@ -29,6 +29,29 @@ async function expectSuccess(runner: CommandRunner, argv: readonly string[], cwd
 export class GitState {
   constructor(private readonly runner: CommandRunner) {}
 
+  async initializeRepository(root: string, message: string, signal?: AbortSignal): Promise<string> {
+    await expectSuccess(this.runner, ['git', 'init', '--quiet'], root, signal)
+    await expectSuccess(this.runner, ['git', 'add', '--all'], root, signal)
+    await expectSuccess(this.runner, [
+      'git',
+      '-c', 'user.name=Tokens as Parameters Experiment',
+      '-c', 'user.email=experiment@tokens-as-parameters.invalid',
+      'commit', '--quiet', '--no-verify', '-m', message,
+    ], root, signal)
+    return this.head(root, signal)
+  }
+
+  async requireCleanCommit(root: string, signal?: AbortSignal): Promise<string> {
+    const commit = await this.resolve(root, 'HEAD', signal)
+    const status = await expectSuccess(this.runner, [
+      'git', 'status', '--porcelain=v1', '--untracked-files=all', '--', '.',
+    ], root, signal)
+    if (status.length > 0) {
+      throw new Error('experiment case has uncommitted changes; commit the case snapshot before starting a run')
+    }
+    return commit
+  }
+
   head(root: string, signal?: AbortSignal): Promise<string> {
     return expectSuccess(this.runner, ['git', 'rev-parse', 'HEAD'], root, signal)
   }

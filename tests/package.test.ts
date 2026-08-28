@@ -53,3 +53,10 @@ test('Bundle composes packages and contains no implementation subpath plugins', 
   }
   assert.doesNotMatch(patch, /dsh-formal-proof\//)
 })
+
+test('first-release model-facing controls expose experiment cases, not arbitrary workspaces', async () => {
+  const source = await readFile(new URL('formal/tool-proof-run/src/index.ts', packageRoot), 'utf8')
+  assert.match(source, /name: 'chip_proof'/)
+  assert.match(source, /name: 'chip_proof_cases'/)
+  assert.doesNotMatch(source, /case_root|proof_run_start/)
+})

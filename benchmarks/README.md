@@ -21,4 +21,6 @@ Every case must include:
 
 `PROVENANCE.md` must identify original sources, commits, licenses, authorship, transformations, and redistribution rights. `case.json` is the runtime manifest and must lock file hashes, theorem identity, immutable inputs, and mutable proof surfaces. Experiment manifests separately lock toolchain/model versions, budgets, and expected verdicts.
 
+The first-release Runtime treats this tree as its experiment Case catalog. Only directories containing a valid `case.json` are discoverable. A Run starts only from an exact `caseId` whose directory is clean at a Git commit; the directory is copied into a Run-owned workspace and is never edited in place. Generated state such as `.git`, `.lake`, `node_modules`, build output, and `.tokens-as-parameters` is not part of the materialized Case.
+
 A positive case must have a defensible reason to expect `PROVED`. A negative case must record a canonical counterexample or another independently replayable reason to expect `DISPROVED`. Unknown cases must not be silently relabeled to optimize success metrics.

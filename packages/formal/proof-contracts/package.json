@@ -10,6 +10,7 @@
   "exports": {
     ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
     "./case-manifest": { "types": "./lib/case-manifest.d.ts", "default": "./lib/case-manifest.js" },
+    "./experiment-catalog": { "types": "./lib/experiment-catalog.d.ts", "default": "./lib/experiment-catalog.js" },
     "./package.json": "./package.json"
   },
   "files": ["lib"],

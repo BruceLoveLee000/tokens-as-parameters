@@ -6,10 +6,14 @@
 
 形式化证明是 Token Optimization Core 的第一个领域应用。`proof-roles` 定义 Formal Prover Agent 架构，Core 不定义它。可安装 Bundle 在 DSH 官方 Code Agent 与 Agent Loop 之上，把该 Agent 与自主 Reflector、确定性 Lean 验证、Git 状态、可观测性和用户控制组装起来。
 
+第一版有意只提供一种模式：在仓库自有的不可变 Case 上执行可复现实验。任意用户工作区不属于该边界，由 [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4) 跟踪。
+
 ```mermaid
 flowchart TB
-  User[官方 DSH Web 中的用户] --> Tools[proof_run start / status / list / stop]
+  User[官方 DSH Web 中的用户] --> Tools[chip_proof / cases / status / list / stop]
   Tools --> Runtime[ProofRunService]
+  Catalog[已提交的 Benchmark Case Catalog] --> Materializer[Run 工作区物化器]
+  Materializer --> Runtime
 
   subgraph Definition[Formal Agent Definition - proof-roles]
     Fixed[固定信任与编辑规则]
@@ -55,7 +59,7 @@ Bundle 只负责组装，不重复实现 Code Agent、Agent Loop、文件/Shell 
 
 | 表面 | 第一版定义 | 反馈状态 |
 |---|---|---|
-| 不可变任务 | 锁定 Manifest、Theorem、Model/Spec 输入与用户 Run 请求 | 输入；反思永不修改 |
+| 不可变任务 | 已提交 Case 身份、锁定 Manifest、Theorem、Model/Spec 输入与用户 Run 请求 | 输入；反思永不修改 |
 | 固定 System Policy | 可编辑面、信任边界、反作弊规则与 Insight 行为 | 本实验冻结 |
 | `task.memory` | 简洁的 Verifier 证据、可复用发现与被否定假设 | Agent 实例可选择；默认开放 |
 | `task.plan` | 公共证明搜索策略与优先级 | 可选择；默认开放 |
@@ -69,7 +73,7 @@ Bundle 只负责组装，不重复实现 Code Agent、Agent Loop、文件/Shell 
 
 ## Run 与 Epoch 执行流
 
-每次 Start 都创建新的 `runId`，不同 Run 不继承可变证明或参数状态；同一 Run 内跨 Epoch 演进。
+每次 Start 都创建新的 `runId`，不同 Run 不继承可变证明或参数状态。源 Case 会被复制到 `<runRoot>/<runId>/workspace`；生成目录和依赖目录会被排除；锁定 Hash 会再次校验；新的 Git 仓库会冻结 Run Baseline。同一 Run 内跨 Epoch 演进，任何 Candidate 都不会写回源 Case。
 
 ```mermaid
 sequenceDiagram
@@ -81,7 +85,8 @@ sequenceDiagram
   participant R as Reflector Agent
   participant G as Git / Run Ledger
 
-  U->>C: 启动版本化 Case、预算与 Rollout 数
+  U->>C: 启动已注册 Case id、预算与 Rollout 数
+  C->>G: 校验干净 Source Commit；复制 Case；初始化 Run Git Baseline
   C->>L: 冻结 Baseline 预检查
   loop 直到证明成功或终止预算
     C->>P: 参数状态 vN + 隔离 Session/Worktree
@@ -143,10 +148,12 @@ Claim Scope 必须显式。`lean-model-vs-spec` 在缺少独立版本化 RTL-to-
 | `verifier-lean` | 确定性 Lean 检查与命名声明整合 |
 | `core-optimization` | 领域无关参数、反馈与更新契约 |
 | `optimizer-relative-reflection` | 可替换语义 Optimizer Agent |
-| `tool-proof-run` | 用户可见生命周期控制 |
+| `tool-proof-run` | 实验 Case 发现与用户可见生命周期控制 |
 
 ## FDIV 经验审查
 
 本次重构不是只和旧 Package API 对比，而是对照了成功的 FDIV 9/14 到 14/14 辅助实验轨迹。详细[能力回退审查](fdiv-capability-review.md)区分了保留能力、主动收缩的范围，以及尚未复现或仍缺失的能力。
 
 结论必须保持边界：新实现保留了核心搜索与信任闭环，恢复了 Checker-clean Helper-only Checkpoint 的跨 Epoch 晋升，并改善了文本参数归因，但还不能宣称与历史系统证据等价。FDIV 14/14 尚未通过该 Bundle 复跑，认证 `DISPROVED` 链路仍缺失。
+
+生产工作区行为——脏 Git 状态、非 Git 初始化、命名空间 Ref、Candidate Patch Apply 与清理——有意推迟到 [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)，避免用一个定义不完整的第二模式削弱实验契约。

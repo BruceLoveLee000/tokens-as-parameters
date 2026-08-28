@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -21,20 +21,25 @@ import {
 } from '@tokens-as-parameters/core-optimization'
 import {
   RUN_SCHEMA_VERSION,
-  StartProofRunSchema,
+  StartProofExperimentSchema,
   type CaseManifest,
+  type ExperimentCaseSummary,
   type LaneEvidence,
   type ProofReceipt,
   type ProofRunSnapshot,
-  type StartProofRun,
   type WhiteboxReview,
 } from '@tokens-as-parameters/proof-contracts'
 import { DshCommandRunner, GitState } from '@tokens-as-parameters/core-state-git'
 import {
+  hashFile,
   loadCaseManifest,
   resolveInside,
   type ResolvedCase,
 } from '@tokens-as-parameters/proof-contracts/case-manifest'
+import {
+  discoverExperimentCases,
+  resolveExperimentCase,
+} from '@tokens-as-parameters/proof-contracts/experiment-catalog'
 import type ProofVerificationService from '@tokens-as-parameters/proof-verification'
 import type { ProofVerifier } from '@tokens-as-parameters/proof-verification'
 import type ProofRoleService from '@tokens-as-parameters/proof-roles'
@@ -61,6 +66,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export interface Config {
+  benchmarkRoot?: string
   defaultRunRoot?: string
   preserveWorktrees?: boolean
 }
@@ -102,12 +108,49 @@ function terminal(state: ProofRunSnapshot['state']): boolean {
   return ['PROVED', 'DISPROVED', 'UNKNOWN', 'ABORTED', 'FAILED'].includes(state)
 }
 
+const MATERIALIZATION_EXCLUDES = new Set([
+  '.git',
+  '.lake',
+  '.tokens-as-parameters',
+  'node_modules',
+])
+
+const ROOT_MATERIALIZATION_EXCLUDES = new Set(['.worktrees', 'build', 'dist', 'lib', 'runs', 'temp', 'tmp'])
+
+async function copyExperimentDirectory(source: string, target: string, depth: number): Promise<void> {
+  await mkdir(target, { recursive: true })
+  for (const entry of await readdir(source, { withFileTypes: true })) {
+    if (MATERIALIZATION_EXCLUDES.has(entry.name) || (depth === 0 && ROOT_MATERIALIZATION_EXCLUDES.has(entry.name))) {
+      continue
+    }
+    const from = join(source, entry.name)
+    const to = join(target, entry.name)
+    if (entry.isSymbolicLink()) {
+      throw new Error(`experiment case contains an unsupported symbolic link: ${from}`)
+    }
+    if (entry.isDirectory()) {
+      await copyExperimentDirectory(from, to, depth + 1)
+    } else if (entry.isFile()) {
+      await copyFile(from, to)
+    } else {
+      throw new Error(`experiment case contains an unsupported filesystem entry: ${from}`)
+    }
+  }
+}
+
+export function materializeExperimentCase(source: string, target: string): Promise<void> {
+  return copyExperimentDirectory(source, target, 0)
+}
+
 function isProofRunSnapshot(value: unknown): value is ProofRunSnapshot {
   if (value === null || typeof value !== 'object') return false
   const candidate = value as Partial<ProofRunSnapshot>
   return candidate.schemaVersion === RUN_SCHEMA_VERSION
     && typeof candidate.runId === 'string'
     && typeof candidate.caseId === 'string'
+    && candidate.mode === 'experiment'
+    && candidate.experiment !== null
+    && typeof candidate.experiment === 'object'
     && typeof candidate.state === 'string'
     && typeof candidate.trustedCommit === 'string'
     && typeof candidate.searchBaseCommit === 'string'
@@ -188,6 +231,7 @@ export default class ProofRunService extends Service {
     this.runner = new DshCommandRunner(ctx)
     this.git = new GitState(this.runner)
     this.config = {
+      benchmarkRoot: resolve(config.benchmarkRoot ?? join(process.cwd(), 'benchmarks')),
       defaultRunRoot: resolve(config.defaultRunRoot ?? join(process.cwd(), '.tokens-as-parameters', 'runs')),
       preserveWorktrees: config.preserveWorktrees ?? true,
     }
@@ -225,15 +269,28 @@ export default class ProofRunService extends Service {
     }
   }
 
-  async start(input: unknown, owner: Agent): Promise<ProofRunSnapshot> {
-    const config = StartProofRunSchema.parse(input)
-    const resolvedCase = await loadCaseManifest(config.caseRoot, config.manifestPath)
-    const baseline = await this.git.resolve(
-      resolvedCase.root,
-      config.baselineCommit ?? resolvedCase.manifest.git.baselineCommit ?? 'HEAD',
+  async listExperimentCases(): Promise<ExperimentCaseSummary[]> {
+    return (await discoverExperimentCases(this.config.benchmarkRoot)).map(item => ({
+      caseId: item.caseId,
+      claimScope: item.claimScope,
+      description: item.description,
+      catalogPath: item.catalogPath,
+    }))
+  }
+
+  async startExperiment(input: unknown, owner: Agent): Promise<ProofRunSnapshot> {
+    const config = StartProofExperimentSchema.parse(input)
+    const catalogCase = await resolveExperimentCase(this.config.benchmarkRoot, config.caseId)
+    const sourceCommit = await this.git.requireCleanCommit(catalogCase.resolvedCase.root)
+    const id = runId(catalogCase.caseId)
+    const root = resolve(this.config.defaultRunRoot, id)
+    const workspace = join(root, 'workspace')
+    await materializeExperimentCase(catalogCase.resolvedCase.root, workspace)
+    const resolvedCase = await loadCaseManifest(workspace)
+    const baseline = await this.git.initializeRepository(
+      workspace,
+      `experiment: freeze ${catalogCase.caseId} from ${sourceCommit}`,
     )
-    const id = runId(resolvedCase.manifest.caseId)
-    const root = resolve(config.runRoot ?? this.config.defaultRunRoot, id)
     const now = new Date().toISOString()
     const rolloutIds = Array.from({ length: config.search.rollouts }, (_, index) => `r${index + 1}`)
     const parameterState = createFormalProverParameterState(
@@ -246,6 +303,13 @@ export default class ProofRunService extends Service {
       runId: id,
       caseId: resolvedCase.manifest.caseId,
       claimScope: resolvedCase.manifest.claimScope,
+      mode: 'experiment',
+      experiment: {
+        catalogPath: catalogCase.catalogPath,
+        manifestSha256: await hashFile(catalogCase.resolvedCase.manifestPath),
+        sourceCommit,
+        workspace: 'workspace',
+      },
       state: 'PREPARING',
       createdAt: now,
       updatedAt: now,
@@ -273,6 +337,19 @@ export default class ProofRunService extends Service {
     this.records.set(id, record)
     await this.observer.registerRun(id, root, 'PREPARING')
     await this.persist(record)
+    await this.observer.emit({
+      runId: id,
+      type: 'experiment/workspace-materialized',
+      state: 'PREPARING',
+      message: `materialized immutable case ${catalogCase.caseId} at source commit ${sourceCommit}`,
+      data: {
+        catalogPath: catalogCase.catalogPath,
+        manifestSha256: record.snapshot.experiment.manifestSha256,
+        sourceCommit,
+        baselineCommit: baseline,
+        workspace: record.snapshot.experiment.workspace,
+      },
+    })
     record.task = this.execute(record, owner)
       .catch(async (error: unknown) => {
         if (record.controller.signal.aborted) {

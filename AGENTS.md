@@ -21,6 +21,8 @@ Before changing code:
 
 The repository is an npm/TypeScript workspace of independent Core, Formal, Lean, Tool, and Bundle packages targeting DSH `0.1.1-rc.2`. `packages/core/optimization` owns the token-optimizer seam; Bundles contain composition rather than domain implementation. Use Node.js `^22.19` or `>=24`.
 
+The first release is experiment-only. Public start controls resolve a committed Case id from `benchmarks/`, materialize an isolated Run workspace, and never accept or mutate an arbitrary user workspace. Production workspace mode is tracked in GitHub Issue #4 and must not be introduced piecemeal through the experiment API.
+
 The following repository commands have been executed successfully:
 
 ```bash

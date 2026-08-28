@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   CaseManifestSchema,
-  StartProofRunSchema,
+  StartProofExperimentSchema,
 } from '@tokens-as-parameters/proof-contracts'
 import {
   applyParameterUpdatePlan,
@@ -47,20 +47,24 @@ test('case manifest keeps frozen inputs outside the editable surface', () => {
   assert.equal(CaseManifestSchema.safeParse(invalid).success, false)
 })
 
-test('run configuration supplies reproducible defaults', () => {
-  const parsed = StartProofRunSchema.parse({ caseRoot: '/tmp/case' })
+test('experiment configuration supplies reproducible defaults without a workspace path', () => {
+  const parsed = StartProofExperimentSchema.parse({ caseId: 'lean-positive' })
   assert.equal(parsed.search.rollouts, 2)
   assert.equal(parsed.search.reflection.enabled, true)
   assert.equal(parsed.search.maxCumulativeTokensPerLane, 20_000_000)
   assert.equal(parsed.search.optimizer, 'relative-reflection')
   assert.equal(parsed.search.verifier, 'lean')
   assert.deepEqual(parsed.search.parameterFeedback, { memory: true, plan: true, routes: true })
-  assert.equal(StartProofRunSchema.safeParse({
-    caseRoot: '/tmp/case',
+  assert.equal(StartProofExperimentSchema.safeParse({
+    caseId: 'lean-positive',
     search: {
       parameterFeedback: { memory: false, plan: false, routes: false },
       reflection: { enabled: true },
     },
+  }).success, false)
+  assert.equal(StartProofExperimentSchema.safeParse({
+    caseId: 'lean-positive',
+    caseRoot: '/tmp/arbitrary-workspace',
   }).success, false)
 })
 
