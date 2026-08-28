@@ -16,6 +16,9 @@ import {
   FORMAL_PROVER_PLAN_PARAMETER_ID,
   formalProverRouteParameterId,
 } from '@tokens-as-parameters/proof-roles'
+import {
+  ProofRunsProjectionSchema,
+} from '@tokens-as-parameters/proof-contracts/dsh-surface'
 
 const HASH = 'a'.repeat(64)
 
@@ -126,4 +129,36 @@ test('formal prover owns its domain parameter architecture above Core', () => {
   assert.equal(state.parameters.find(parameter => parameter.id === FORMAL_PROVER_PLAN_PARAMETER_ID)?.requiresFeedback, true)
   assert.equal(state.parameters.find(parameter => parameter.id === formalProverRouteParameterId('r2'))?.scope, 'lane')
   assert.equal(state.parameters.some(parameter => parameter.id.includes('fdiv')), false)
+})
+
+test('proof run Web projection is a bounded controller-owned view', () => {
+  const parsed = ProofRunsProjectionSchema.parse({
+    activeRunId: 'run-1',
+    runs: [{
+      runId: 'run-1',
+      caseId: 'lean-positive',
+      state: 'CONSOLIDATING',
+      createdAt: '2026-08-28T00:00:00.000Z',
+      updatedAt: '2026-08-28T00:01:00.000Z',
+      epoch: 2,
+      trustedObligationsClosed: 1,
+      obligationsTotal: 2,
+      totalTokens: 42_000,
+      sessionTokens: { 'run-1-e2-r1': 42_000 },
+      activeSessionIds: ['run-1-e2-r1'],
+      lanes: [{
+        rolloutId: 'r1',
+        sessionId: 'run-1-e2-r1',
+        epoch: 2,
+        tokens: 42_000,
+        obligationsClosed: 1,
+        obligationsTotal: 2,
+        checkpointable: true,
+        finalAccepted: false,
+      }],
+    }],
+  })
+  assert.equal(parsed.runs[0]?.state, 'CONSOLIDATING')
+  assert.equal(parsed.runs[0]?.lanes[0]?.checkpointable, true)
+  assert.equal(parsed.runs[0]?.sessionTokens['run-1-e2-r1'], 42_000)
 })

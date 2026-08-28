@@ -11,6 +11,7 @@
     { "path": "packages/formal/proof-observer" },
     { "path": "packages/formal/proof-roles" },
     { "path": "packages/formal/proof-runtime" },
-    { "path": "packages/formal/tool-proof-run" }
+    { "path": "packages/formal/tool-proof-run" },
+    { "path": "packages/formal/ui-proof-run" }
   ]
 }

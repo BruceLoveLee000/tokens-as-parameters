@@ -19,6 +19,7 @@ test('workspace publishes independent core, domain, adapter, tool, and Bundle pa
   assert.equal((await manifest('formal/proof-verification')).name, '@tokens-as-parameters/proof-verification')
   assert.equal((await manifest('lean/verifier-lean')).name, '@tokens-as-parameters/verifier-lean')
   assert.equal((await manifest('formal/tool-proof-run')).name, '@tokens-as-parameters/tool-proof-run')
+  assert.equal((await manifest('formal/ui-proof-run')).name, '@tokens-as-parameters/ui-proof-run')
 
   const bundle = await manifest('bundle/formal-proof')
   assert.equal(bundle.name, '@tokens-as-parameters/bundle-formal-proof')
@@ -47,6 +48,7 @@ test('Bundle composes packages and contains no implementation subpath plugins', 
     'proof-roles',
     'proof-runtime',
     'tool-proof-run',
+    'ui-proof-run',
     'verifier-lean',
   ]) {
     assert.match(patch, new RegExp(`@tokens-as-parameters/${plugin}\\b`))
@@ -59,4 +61,6 @@ test('first-release model-facing controls expose experiment cases, not arbitrary
   assert.match(source, /name: 'chip_proof'/)
   assert.match(source, /name: 'chip_proof_cases'/)
   assert.doesNotMatch(source, /case_root|proof_run_start/)
+  assert.match(source, /name: 'proof-stop'/)
+  assert.match(source, /does not belong to this session/)
 })

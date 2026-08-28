@@ -29,3 +29,6 @@
 
     - id: tap-proof-run-tools
       name: '@tokens-as-parameters/tool-proof-run'
+
+    - id: tap-proof-run-ui
+      name: '@tokens-as-parameters/ui-proof-run'

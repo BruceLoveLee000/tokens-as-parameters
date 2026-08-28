@@ -4,8 +4,10 @@ import { basename, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-agent-presets'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import type OptimizationService from '@tokens-as-parameters/core-optimization'
 import {
@@ -29,6 +31,11 @@ import {
   type ProofRunSnapshot,
   type WhiteboxReview,
 } from '@tokens-as-parameters/proof-contracts'
+import {
+  ProofRunsProjectionSchema,
+  toProofRunView,
+  type ProofRunsProjection,
+} from '@tokens-as-parameters/proof-contracts/dsh-surface'
 import { DshCommandRunner, GitState } from '@tokens-as-parameters/core-state-git'
 import {
   hashFile,
@@ -73,10 +80,13 @@ export interface Config {
 
 interface RunRecord {
   snapshot: ProofRunSnapshot
+  owner: Agent
   directory: string
   resolvedCase: ResolvedCase
   controller: AbortController
   handles: Set<AgentHandle>
+  accountedSessionUsage: Map<string, ProofRunSnapshot['tokenUsage']>
+  persisting: Promise<void>
   task: Promise<void>
 }
 
@@ -235,6 +245,28 @@ export default class ProofRunService extends Service {
       defaultRunRoot: resolve(config.defaultRunRoot ?? join(process.cwd(), '.tokens-as-parameters', 'runs')),
       preserveWorktrees: config.preserveWorktrees ?? true,
     }
+    ctx.inject(['sessionProjections'], projectionCtx => {
+      projectionCtx.sessionProjections.register<'proofRuns', ProofRunsProjection>({
+        key: 'proofRuns',
+        stateSchema: ProofRunsProjectionSchema,
+        init: () => ({ activeRunId: null, runs: [] }),
+        apply: (state, event) => event.type === 'tokens-as-parameters/proof-runs'
+          ? event.data
+          : state,
+        wire: { viewSchema: ProofRunsProjectionSchema, view: state => state },
+        stateVersion: 1,
+      })
+    })
+    ctx.on('session/event', (session, event) => {
+      if (event.type !== 'assistant/message' || event.data.usage === undefined) return
+      const record = [...this.records.values()].find(candidate => (
+        [...candidate.handles].some(handle => handle.agent.session === session)
+      ))
+      if (record === undefined) return
+      this.accountSessionUsage(record, String(session.id), sessionUsage(session.events))
+      record.snapshot.updatedAt = new Date().toISOString()
+      void this.persist(record)
+    })
     ctx.effect(() => async () => {
       const records = [...this.records.values()]
       records.forEach(record => {
@@ -301,6 +333,7 @@ export default class ProofRunService extends Service {
     const snapshot: ProofRunSnapshot = {
       schemaVersion: RUN_SCHEMA_VERSION,
       runId: id,
+      ownerSessionId: String(owner.id),
       caseId: resolvedCase.manifest.caseId,
       claimScope: resolvedCase.manifest.claimScope,
       mode: 'experiment',
@@ -320,6 +353,7 @@ export default class ProofRunService extends Service {
       obligationsTotal: resolvedCase.manifest.lean.obligations.length,
       totalTokens: 0,
       tokenUsage: emptyTokenUsage(),
+      sessionTokenUsage: {},
       activeSessionIds: [],
       lanes: [],
       parameterState,
@@ -328,10 +362,13 @@ export default class ProofRunService extends Service {
     const controller = new AbortController()
     const record: RunRecord = {
       snapshot,
+      owner,
       directory: root,
       resolvedCase,
       controller,
       handles: new Set(),
+      accountedSessionUsage: new Map(),
+      persisting: Promise.resolve(),
       task: Promise.resolve(),
     }
     this.records.set(id, record)
@@ -448,7 +485,11 @@ export default class ProofRunService extends Service {
         rolloutId => this.runLane(record, owner, epoch, rolloutId, parameterState),
       )
       record.snapshot.lanes = lanes.map(lane => lane.evidence)
-      lanes.forEach(lane => this.addTokenUsage(record, lane.evidence.tokenUsage))
+      lanes.forEach(lane => this.accountSessionUsage(
+        record,
+        lane.evidence.sessionId,
+        lane.evidence.tokenUsage,
+      ))
       await this.persist(record)
 
       const finalLane = lanes
@@ -463,6 +504,7 @@ export default class ProofRunService extends Service {
         return
       }
 
+      await this.transition(record, 'CONSOLIDATING', `merging checker-trusted progress from epoch ${epoch}`)
       const consolidation = await this.consolidate(record, epoch, lanes)
       if (consolidation.receipt.checkpointable) {
         const obligationProgress = consolidation.receipt.obligationsClosed > record.snapshot.trustedObligationsClosed
@@ -619,6 +661,7 @@ export default class ProofRunService extends Service {
       setup: agentCtx => {
         const agent = agentCtx.agent
         if (agent === undefined) throw new Error('DSH did not associate the unpublished prover agent')
+        this.ctx.get('agentPresets')?.composeFrom(agentCtx, owner.ctx)
         this.roles.installProver(agentCtx, {
           agent,
           runId: record.snapshot.runId,
@@ -637,6 +680,7 @@ export default class ProofRunService extends Service {
     })
     record.handles.add(handle)
     record.snapshot.activeSessionIds.push(String(sessionId))
+    await this.persist(record)
     const detachObserver = this.observer.attachSession(handle.agent, {
       runId: record.snapshot.runId,
       epoch,
@@ -876,6 +920,7 @@ export default class ProofRunService extends Service {
     })
     record.handles.add(handle)
     record.snapshot.activeSessionIds.push(String(sessionId))
+    await this.persist(record)
     const detach = this.observer.attachSession(handle.agent, {
       runId: record.snapshot.runId,
       epoch,
@@ -906,13 +951,14 @@ export default class ProofRunService extends Service {
         }))
         await handle.agent.whenIdle()
       }
-      this.addTokenUsage(record, sessionUsage(handle.agent.session.events))
+      this.accountSessionUsage(record, String(sessionId), sessionUsage(handle.agent.session.events))
       return capture?.plan() ?? neutralParameterUpdatePlan(parameters)
     } finally {
       detach()
       record.handles.delete(handle)
       record.snapshot.activeSessionIds = record.snapshot.activeSessionIds.filter(id => id !== String(sessionId))
       await handle.dispose()
+      await this.persist(record)
     }
   }
 
@@ -947,11 +993,13 @@ export default class ProofRunService extends Service {
       setup: agentCtx => {
         const agent = agentCtx.agent
         if (agent === undefined) throw new Error('DSH did not associate the unpublished reviewer agent')
+        this.ctx.get('agentPresets')?.composeFrom(agentCtx, owner.ctx)
         capture = this.roles.installReviewer(agentCtx, { agent, resolvedCase: record.resolvedCase, receipt })
       },
     })
     record.handles.add(handle)
     record.snapshot.activeSessionIds.push(String(sessionId))
+    await this.persist(record)
     const detach = this.observer.attachSession(handle.agent, {
       runId: record.snapshot.runId,
       epoch: record.snapshot.epoch,
@@ -967,7 +1015,7 @@ export default class ProofRunService extends Service {
         }],
       }))
       await handle.agent.whenIdle()
-      this.addTokenUsage(record, sessionUsage(handle.agent.session.events))
+      this.accountSessionUsage(record, String(sessionId), sessionUsage(handle.agent.session.events))
       const review: WhiteboxReview | undefined = capture?.review()
       if (review !== undefined) record.snapshot.whiteboxReview = review
       if (review?.approved === true) {
@@ -982,6 +1030,7 @@ export default class ProofRunService extends Service {
       record.handles.delete(handle)
       record.snapshot.activeSessionIds = record.snapshot.activeSessionIds.filter(id => id !== String(sessionId))
       await handle.dispose()
+      await this.persist(record)
     }
   }
 
@@ -997,11 +1046,17 @@ export default class ProofRunService extends Service {
         await this.git.removeWorktree(record.resolvedCase.root, lane.worktree)
       }
     }
+    await this.persist(record)
   }
 
   private async disposeRemainingHandles(record: RunRecord): Promise<void> {
     const handles = [...record.handles]
     record.handles.clear()
+    handles.forEach(handle => this.accountSessionUsage(
+      record,
+      String(handle.agent.session.id),
+      sessionUsage(handle.agent.session.events),
+    ))
     await Promise.allSettled(handles.map(handle => handle.dispose()))
     record.snapshot.activeSessionIds = []
     await this.persist(record)
@@ -1050,6 +1105,26 @@ export default class ProofRunService extends Service {
     record.snapshot.totalTokens = record.snapshot.tokenUsage.totalTokens
   }
 
+  private accountSessionUsage(
+    record: RunRecord,
+    sessionId: string,
+    usage: ProofRunSnapshot['tokenUsage'],
+  ): void {
+    const previous = record.accountedSessionUsage.get(sessionId) ?? emptyTokenUsage()
+    const delta: ProofRunSnapshot['tokenUsage'] = {
+      inputTokens: Math.max(0, usage.inputTokens - previous.inputTokens),
+      outputTokens: Math.max(0, usage.outputTokens - previous.outputTokens),
+      cacheReadTokens: Math.max(0, usage.cacheReadTokens - previous.cacheReadTokens),
+      cacheWriteTokens: Math.max(0, usage.cacheWriteTokens - previous.cacheWriteTokens),
+      reasoningTokens: Math.max(0, usage.reasoningTokens - previous.reasoningTokens),
+      totalTokens: Math.max(0, usage.totalTokens - previous.totalTokens),
+    }
+    record.accountedSessionUsage.set(sessionId, { ...usage })
+    record.snapshot.sessionTokenUsage ??= {}
+    record.snapshot.sessionTokenUsage[sessionId] = { ...usage }
+    this.addTokenUsage(record, delta)
+  }
+
   private worktreePath(id: string, epoch: number, lane: string): string {
     return join(tmpdir(), 'tokens-as-parameters', id, `epoch-${epoch}`, lane)
   }
@@ -1095,6 +1170,24 @@ export default class ProofRunService extends Service {
   }
 
   private persist(record: RunRecord): Promise<void> {
-    return this.observer.persistSnapshot(record.directory, record.snapshot)
+    const snapshot = clone(record.snapshot)
+    record.persisting = record.persisting.then(async () => {
+      await this.observer.persistSnapshot(record.directory, snapshot)
+      this.publishProjection(record.owner, snapshot)
+    })
+    return record.persisting
+  }
+
+  private publishProjection(owner: Agent, snapshot: ProofRunSnapshot): void {
+    const current = this.ctx.get('sessionProjections')?.stateOf(owner.session, 'proofRuns')
+      ?? { activeRunId: null, runs: [] }
+    const runs = new Map(current.runs.map(run => [run.runId, run]))
+    runs.set(snapshot.runId, toProofRunView(snapshot))
+    const ordered = [...runs.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    const active = ordered.find(run => !terminal(run.state))
+    owner.session.append('tokens-as-parameters/proof-runs', {
+      activeRunId: active?.runId ?? null,
+      runs: ordered,
+    })
   }
 }

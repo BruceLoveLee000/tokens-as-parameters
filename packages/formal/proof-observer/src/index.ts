@@ -42,6 +42,10 @@ export default class ProofObserverService extends Service {
   constructor(ctx: Context) {
     super(ctx, 'proofObserver')
     ctx.on('session/event', (session, event) => {
+      // Streaming chunks are already durable in the DSH session and are far too
+      // fine-grained for the domain ledger. The completed assistant/message
+      // retains usage and the native conversation remains fully inspectable.
+      if (event.type === 'assistant/chunk') return
       const link = this.sessions.get(String(session.id))
       if (link === undefined) return
       void this.emit({

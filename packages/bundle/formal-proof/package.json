@@ -20,6 +20,7 @@
     "@tokens-as-parameters/proof-runtime": "0.1.0",
     "@tokens-as-parameters/proof-verification": "0.1.0",
     "@tokens-as-parameters/tool-proof-run": "0.1.0",
+    "@tokens-as-parameters/ui-proof-run": "0.1.0",
     "@tokens-as-parameters/verifier-lean": "0.1.0"
   }
 }

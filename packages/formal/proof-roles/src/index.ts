@@ -122,10 +122,41 @@ export interface ReviewerCapture {
   review(): WhiteboxReview | undefined
 }
 
+function restrictInheritedTools(
+  agentCtx: Context,
+  agent: Agent,
+  requested: readonly string[],
+  required: readonly string[],
+  role: string,
+): void {
+  const allowed = requested.filter(name => agentCtx.tools.get(name, agent) !== undefined)
+  const missing = required.filter(name => !allowed.includes(name))
+  if (missing.length > 0) {
+    throw new Error(
+      `${role} requires the official Code Agent tool composition; missing inherited tool(s): ${missing.join(', ')}`,
+    )
+  }
+  agentCtx.tools.restrict({ allow: allowed })
+}
+
+function restrictProverTools(agentCtx: Context, agent: Agent): void {
+  restrictInheritedTools(
+    agentCtx,
+    agent,
+    ['bash', 'read', 'write', 'edit', 'glob', 'grep', 'skill', 'get_goal'],
+    ['bash', 'read', 'write', 'edit'],
+    'formal prover',
+  )
+}
+
 function restrictToReadOnly(agentCtx: Context, agent: Agent): void {
-  const allowedSet = new Set(['read', 'grep', 'glob', 'skill', 'get_goal', 'submit_whitebox_review'])
-  const allowed = agentCtx.tools.schemas(agent).map(schema => schema.name).filter(name => allowedSet.has(name))
-  if (allowed.length > 0) agentCtx.tools.restrict({ allow: allowed })
+  restrictInheritedTools(
+    agentCtx,
+    agent,
+    ['read', 'grep', 'glob', 'skill', 'get_goal'],
+    ['read'],
+    'white-box reviewer',
+  )
 }
 
 export default class ProofRoleService extends Service {
@@ -207,6 +238,11 @@ export default class ProofRoleService extends Service {
         return JSON.stringify(receipt)
       },
     }))
+
+    // The role keeps the official Code Agent's filesystem/shell surface while
+    // removing outer lifecycle controls such as chip_proof and proof_run_stop.
+    // Scope-local proof tools above remain visible by DSH restriction design.
+    restrictProverTools(agentCtx, options.agent)
   }
 
   installReviewer(agentCtx: Context, options: ReviewerRoleOptions): ReviewerCapture {

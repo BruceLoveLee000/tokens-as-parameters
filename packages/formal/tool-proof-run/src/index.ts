@@ -1,11 +1,12 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@tokens-as-parameters/proof-runtime'
 
 export const name = 'tokens-as-parameters-proof-run-tools'
-export const inject = ['agents', 'proofRuns', 'tools', 'systemPrompt']
+export const inject = ['agents', 'commands', 'proofRuns', 'tools', 'systemPrompt']
 
 const STRING_OUTPUT = {
   schema: { type: 'string' as const },
@@ -18,6 +19,23 @@ function requireAgent(agent: Agent | undefined): Agent {
 }
 
 export function apply(ctx: Context): void {
+  ctx.commands.register({
+    name: 'proof-stop',
+    description: 'Stop an active formal-proof run directly without invoking the model.',
+    input: { hint: '<run-id>' },
+    async handler({ agent, rawInput }) {
+      const id = rawInput.trim()
+      if (id.length === 0) return { kind: 'error', text: 'usage: /proof-stop <run-id>' }
+      const snapshot = await ctx.proofRuns.get(id)
+      if (snapshot === undefined) return { kind: 'error', text: `unknown proof run: ${id}` }
+      if (snapshot.ownerSessionId !== String(agent.id)) {
+        return { kind: 'error', text: `proof run ${id} does not belong to this session` }
+      }
+      const stopped = await ctx.proofRuns.stop(id)
+      return { kind: 'success', text: `proof run ${id}: ${stopped.state}` }
+    },
+  })
+
   ctx.systemPrompt.section({
     name: 'tokens-as-parameters:proof-run-controls',
     order: 116,
@@ -128,7 +146,13 @@ export function apply(ctx: Context): void {
       run_id: { type: 'string', required: true },
     },
     output: STRING_OUTPUT,
-    async execute(args) {
+    async execute(args, exec) {
+      const agent = requireAgent(exec.agent)
+      const snapshot = await ctx.proofRuns.get(args.run_id)
+      if (snapshot === undefined) throw new Error(`unknown proof run: ${args.run_id}`)
+      if (snapshot.ownerSessionId !== String(agent.id)) {
+        throw new Error(`proof run ${args.run_id} does not belong to this session`)
+      }
       return JSON.stringify(await ctx.proofRuns.stop(args.run_id))
     },
   }))

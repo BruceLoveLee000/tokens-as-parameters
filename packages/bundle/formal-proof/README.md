@@ -29,7 +29,7 @@ Restart the profile after installation:
 dsh web
 ```
 
-The package manifest's `dsh.bundle.patch` composes eight runtime plugins:
+The package manifest's `dsh.bundle.patch` composes nine runtime plugins:
 
 - `core-optimization`: domain-neutral text-parameter, exposure, feedback, atomic-update, and Optimizer registry contracts;
 - `optimizer-relative-reflection`: replaceable group-relative semantic Optimizer;
@@ -39,6 +39,7 @@ The package manifest's `dsh.bundle.patch` composes eight runtime plugins:
 - `proof-roles`: scoped Prover and read-only Reviewer prompts/tools;
 - `proof-runtime`: background lifecycle, isolated worktrees/sessions, checker gates, consolidation, and stop policy;
 - `tool-proof-run`: experiment-only `chip_proof`, `chip_proof_cases`, `proof_run_status`, `proof_run_list`, and `proof_run_stop`.
+- `ui-proof-run`: projects Proof Runtime state, trusted progress, run history, and Agent-session links into DSH Web, with a model-free Stop button.
 
 Libraries such as `proof-contracts`, `core-state-git`, and `core-telemetry` are dependencies of those plugins rather than Bundle rows.
 
@@ -87,7 +88,7 @@ From a DSH Code Agent conversation, use the experiment convention:
 
 The installed system-prompt section instructs the Code Agent to translate this into `chip_proof({ case_id: "lean-smoke-positive" })`. Use `chip_proof_cases` to inspect available ids. Search budgets remain optional `chip_proof` arguments. This is a conversation convention over the DSH Tool API in `0.1.1-rc.2`, not a second Agent Loop or a client-side slash-command implementation.
 
-Each invocation receives a new immutable `runId`. Refreshing the Web page does not stop the background run. Use `proof_run_status` or `proof_run_list` after reconnecting; use `proof_run_stop` for an explicit cancellation. Historical snapshots under the default run root are rediscovered after process restart. A formerly active snapshot is then reported as `ABORTED`, because this release does not pretend to resume an Agent Loop that the process no longer owns.
+Each invocation receives a new immutable `runId`. DSH Web's **Proof Run** tab streams `PREPARING / PROVING / CONSOLIDATING / REFLECTING / REVIEWING`, trusted obligation progress, Epoch, tokens, and child-Agent sessions. Refreshing the page does not stop the background run. The Stop button executes `/proof-stop <runId>` directly against the controller without invoking the main model. The `proof_run_status`, `proof_run_list`, and `proof_run_stop` tools remain available. Historical snapshots under the default run root are rediscovered after process restart. A formerly active snapshot is then reported as `ABORTED`, because this release does not pretend to resume an Agent Loop that the process no longer owns.
 
 Every Prover, Reflector, and Reviewer is an official DSH Session. The native conversation/session surface owns raw model and tool history. The Bundle persists a research ledger under `.tokens-as-parameters/runs/<runId>/`:
 

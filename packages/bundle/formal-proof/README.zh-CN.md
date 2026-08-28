@@ -29,7 +29,7 @@ dsh plugin --profile web add ./tokens-as-parameters-*.tgz
 dsh web
 ```
 
-Package Manifest 中的 `dsh.bundle.patch` 会组合八个运行时插件：
+Package Manifest 中的 `dsh.bundle.patch` 会组合九个运行时插件：
 
 - `core-optimization`：领域无关的文本参数、暴露、反馈、原子更新与 Optimizer 注册契约；
 - `optimizer-relative-reflection`：可替换的组间相对语义 Optimizer；
@@ -39,6 +39,7 @@ Package Manifest 中的 `dsh.bundle.patch` 会组合八个运行时插件：
 - `proof-roles`：作用域隔离的 Prover，以及只读 Reviewer 的 Prompt/Tool；
 - `proof-runtime`：后台生命周期、隔离 Worktree/Session、Checker 门控、语义合并与停止策略；
 - `tool-proof-run`：仅用于实验的 `chip_proof`、`chip_proof_cases`、`proof_run_status`、`proof_run_list` 和 `proof_run_stop`。
+- `ui-proof-run`：把 Proof Runtime 状态机、可信进度、历史 Run 与 Agent Session 入口投影到 DSH Web，并提供不经过模型的停止按钮。
 
 `proof-contracts`、`core-state-git` 与 `core-telemetry` 等库是上述插件的依赖，不是 Bundle Row。
 
@@ -62,7 +63,7 @@ Package Manifest 中的 `dsh.bundle.patch` 会组合八个运行时插件：
 
 安装的 System Prompt Section 会指导 Code Agent 把它转换为 `chip_proof({ case_id: "lean-smoke-positive" })`；使用 `chip_proof_cases` 查看可用 id。搜索预算仍可作为 `chip_proof` 的可选参数。这是 `0.1.1-rc.2` DSH Tool API 上的对话约定，不是第二套 Agent Loop，也不是客户端 Slash Command 实现。
 
-每次调用都会获得新的不可变 `runId`。刷新 Web 页面不会停止后台 Run；重新连接后使用 `proof_run_status` 或 `proof_run_list` 查询，使用 `proof_run_stop` 显式取消。进程重启后会重新发现默认 Run Root 下的历史 Snapshot；如果某个历史 Snapshot 原来仍是活动状态，系统会把它报告为 `ABORTED`，因为当前版本不会假装恢复已经失去所有权的 Agent Loop。
+每次调用都会获得新的不可变 `runId`。DSH Web 的“证明运行”标签页实时显示 `PREPARING / PROVING / CONSOLIDATING / REFLECTING / REVIEWING`、可信命题进度、Epoch、Token 和子 Agent 会话。刷新页面不会停止后台 Run；“停止运行”按钮通过 `/proof-stop <runId>` 命令直达 Controller，不调用主模型。也可以继续使用 `proof_run_status`、`proof_run_list` 和 `proof_run_stop` 工具。进程重启后会重新发现默认 Run Root 下的历史 Snapshot；如果某个历史 Snapshot 原来仍是活动状态，系统会把它报告为 `ABORTED`，因为当前版本不会假装恢复已经失去所有权的 Agent Loop。
 
 每个 Prover、Reflector 和 Reviewer 都是 DSH 官方 Session。原始模型和工具历史由原生对话/Session 界面管理。Bundle 还会在 `.tokens-as-parameters/runs/<runId>/` 保存研究账本：
 

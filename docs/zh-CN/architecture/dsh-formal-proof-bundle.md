@@ -10,7 +10,10 @@
 
 ```mermaid
 flowchart TB
-  User[官方 DSH Web 中的用户] --> Tools[chip_proof / cases / status / list / stop]
+  User[官方 DSH Web 中的用户] --> Tools[chip_proof / cases / status / list]
+  User --> Web[证明运行 View]
+  Web -->|Session Projection| Runtime
+  Web -->|DSH Command: proof-stop| Runtime
   Tools --> Runtime[ProofRunService]
   Catalog[已提交的 Benchmark Case Catalog] --> Materializer[Run 工作区物化器]
   Materializer --> Runtime
@@ -51,7 +54,7 @@ flowchart TB
   Checker --> Reviewer
 ```
 
-Bundle 只负责组装，不重复实现 Code Agent、Agent Loop、文件/Shell 工具、上下文压缩、凭据、Token 计量、Session 持久化或 Web 轨迹界面。
+Bundle 不重复实现 Code Agent、Agent Loop、文件/Shell 工具、上下文压缩、凭据、Token 计量、Session 持久化或通用轨迹界面。它只新增一个领域 View：把 Controller 的 `PREPARING → PROVING → CONSOLIDATING → REFLECTING → REVIEWING` 状态机、可信进度和关联 Agent Session 投影到宿主会话；总 Token 与各子 Session Token 会在每个模型 Step 完成后更新。停止按钮通过 DSH Commands 直达 Runtime，不向主模型发送文本。
 
 ## Formal Prover Agent 架构
 
@@ -64,12 +67,14 @@ Bundle 只负责组装，不重复实现 Code Agent、Agent Loop、文件/Shell 
 | `task.memory` | 简洁的 Verifier 证据、可复用发现与被否定假设 | Agent 实例可选择；默认开放 |
 | `task.plan` | 公共证明搜索策略与优先级 | 可选择；默认开放 |
 | `lane.<id>.route` | 每路独立搜索任务 | 可选择；默认开放 |
-| 工具 | 官方 Code Agent 工具，加 `record_insight` 与 `lean_check_candidate` | 本实验冻结 |
+| 工具 | 继承宿主 Session 的官方 Code Agent Preset，加 `record_insight` 与 `lean_check_candidate` | 本实验冻结 |
 | Skill | 由安装的 DSH 环境提供 | Bundle 不携带 FDIV 专属 Skill |
 
 这张表就是当前实验的模型定义。Core 只校验和版本化已注册参数。未来数学 Prover 或 Code Agent Trainer 可以注册完全不同的 ID 和描述，无需修改 Core。
 
 三个参数 Section 的上下文位置固定。每个 Prover Session 开始前，Runtime 都记录包含精确 Revision 的上下文快照。Reflector 因此可以查询“这个参数版本在哪里被使用、Checker 看到了什么结果”，而不是从模型文字中猜归因。
+
+Runtime 通过 DSH `agentPresets.composeFrom` 让 Prover 和 Reviewer 加入宿主 Agent 正在使用的同一份 Preset Generation，而不是重造 Code Agent。随后角色层只保留证明所需的继承工具：Prover 使用原生 `bash/read/write/edit/glob/grep/skill`，Reviewer 使用只读子集；`chip_proof`、`proof_run_stop` 等外层生命周期工具不会进入它们的可调用面。Reflector 仍采用自己的证据工具集合，不继承文件/Shell 工具。
 
 ## Run 与 Epoch 执行流
 
@@ -93,6 +98,7 @@ sequenceDiagram
     P->>P: 搜索、调用工具、记录 Insight，并在单次 max-token 后续跑
     P-->>L: 候选产物
     L-->>C: Build、Hygiene、Signature、锁定输入、Obligation 与 Axiom Receipt
+    C->>C: 状态切换到 CONSOLIDATING
     C->>I: 语义移植新关闭的声明
     I->>L: 重新检查组合候选
     C->>R: 参数注册表 + Evaluation + 证据工具
@@ -149,6 +155,7 @@ Claim Scope 必须显式。`lean-model-vs-spec` 在缺少独立版本化 RTL-to-
 | `core-optimization` | 领域无关参数、反馈与更新契约 |
 | `optimizer-relative-reflection` | 可替换语义 Optimizer Agent |
 | `tool-proof-run` | 实验 Case 发现与用户可见生命周期控制 |
+| `ui-proof-run` | DSH Web 运行视图、Session 跳转与直接停止控制 |
 
 ## FDIV 经验审查
 

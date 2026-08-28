@@ -163,6 +163,7 @@ export interface ProofExperimentSource {
 export type RunState =
   | 'PREPARING'
   | 'PROVING'
+  | 'CONSOLIDATING'
   | 'REFLECTING'
   | 'REVIEWING'
   | 'PROVED'
@@ -243,6 +244,8 @@ export interface WhiteboxReview {
 export interface ProofRunSnapshot {
   schemaVersion: typeof RUN_SCHEMA_VERSION
   runId: string
+  /** DSH session that started this run. Older persisted runs may predate this field. */
+  ownerSessionId?: string
   caseId: string
   claimScope: CaseManifest['claimScope']
   mode: 'experiment'
@@ -259,6 +262,8 @@ export interface ProofRunSnapshot {
   obligationsTotal: number
   totalTokens: number
   tokenUsage: TokenUsageSummary
+  /** Per-DSH-session usage for live UI. Older persisted runs may predate this field. */
+  sessionTokenUsage?: Record<string, TokenUsageSummary>
   activeSessionIds: string[]
   lanes: LaneEvidence[]
   parameterState: TextParameterState

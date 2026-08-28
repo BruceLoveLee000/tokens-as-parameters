@@ -10,7 +10,10 @@ The first release has one deliberate mode: reproducible experiments over immutab
 
 ```mermaid
 flowchart TB
-  User[User in official DSH Web] --> Tools[chip_proof / cases / status / list / stop]
+  User[User in official DSH Web] --> Tools[chip_proof / cases / status / list]
+  User --> Web[Proof Run view]
+  Web -->|Session Projection| Runtime
+  Web -->|DSH Command: proof-stop| Runtime
   Tools --> Runtime[ProofRunService]
   Catalog[Committed benchmark Case catalog] --> Materializer[Run workspace materializer]
   Materializer --> Runtime
@@ -51,7 +54,7 @@ flowchart TB
   Checker --> Reviewer
 ```
 
-The Bundle contains composition only. It does not reimplement the Code Agent, Agent Loop, filesystem/shell tools, context compaction, credentials, token accounting, session persistence, or Web trajectory UI.
+The Bundle does not reimplement the Code Agent, Agent Loop, filesystem/shell tools, context compaction, credentials, token accounting, session persistence, or generic trajectory UI. It adds one domain view that projects the controller's `PREPARING → PROVING → CONSOLIDATING → REFLECTING → REVIEWING` state machine, trusted progress, and linked Agent sessions onto the owner session. Total and per-session token usage are updated after each completed model step. Its Stop button reaches Runtime through DSH Commands without sending text to the main model.
 
 ## Formal Prover Agent architecture
 
@@ -64,12 +67,14 @@ The Bundle contains composition only. It does not reimplement the Code Agent, Ag
 | `task.memory` | concise verifier-backed facts, reusable discoveries, and invalidated assumptions | selectable per Agent instance; enabled by default |
 | `task.plan` | shared proof-search policy and prioritization | selectable; enabled by default |
 | `lane.<id>.route` | lane-specific independent assignment | selectable; enabled by default |
-| tools | official Code Agent tools plus `record_insight` and `lean_check_candidate` | frozen in this experiment |
+| tools | owner session's official Code Agent preset plus `record_insight` and `lean_check_candidate` | frozen in this experiment |
 | Skills | supplied by the installed DSH environment | no FDIV-specific Skill is bundled |
 
 This table is the model definition for the current experiment. Core merely validates and versions the registered parameters. A future mathematical prover or Code Agent trainer can register different ids and descriptions without changing Core.
 
 The three parameter sections have stable context positions. Before each Prover session, Runtime records a context snapshot containing their exact revisions. The Reflector can therefore ask “where was this parameter revision used and what did the checker observe?” instead of inferring attribution from prose.
+
+Runtime uses DSH `agentPresets.composeFrom` so Prover and Reviewer join the exact preset generation already used by the owner Agent rather than recreating a Code Agent. The role layer then retains only inherited proof capabilities: Prover receives native `bash/read/write/edit/glob/grep/skill`, Reviewer receives the read-only subset, and outer lifecycle tools such as `chip_proof` and `proof_run_stop` are unavailable. Reflector keeps its dedicated evidence tools and does not inherit filesystem or shell capabilities.
 
 ## Run and epoch flow
 
@@ -93,6 +98,7 @@ sequenceDiagram
     P->>P: search, use tools, record Insights, continue after request max-token boundaries
     P-->>L: candidate artifacts
     L-->>C: build, hygiene, signature, locked-input, obligation and axiom receipts
+    C->>C: transition to CONSOLIDATING
     C->>I: semantically transplant newly closed declarations
     I->>L: recheck combined candidate
     C->>R: parameter registry + evaluations + evidence tools
@@ -149,6 +155,7 @@ The claim scope remains explicit. `lean-model-vs-spec` does not imply RTL fideli
 | `core-optimization` | domain-neutral parameter/feedback/update contracts |
 | `optimizer-relative-reflection` | replaceable semantic Optimizer Agent |
 | `tool-proof-run` | experiment Case discovery and user-facing lifecycle controls |
+| `ui-proof-run` | DSH Web runtime view, session navigation, and direct stop control |
 
 ## FDIV experience review
 
