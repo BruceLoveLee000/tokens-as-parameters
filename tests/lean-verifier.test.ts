@@ -176,6 +176,17 @@ test('verifier removes prior Lean build outputs before checking trust', async ()
   await assert.rejects(access(configArtifact))
 })
 
+test('Lean baseline preparation runs only the manifest-declared cache command', async () => {
+  const { root, resolved } = await fixture()
+  resolved.manifest.lean.dependencyCacheArgv = ['lake', 'exe', 'cache', 'get']
+  const runner = new FakeRunner()
+
+  await new LeanVerifier(runner).prepareBaselineEnvironment(resolved, root)
+
+  assert.deepEqual(runner.calls.map(call => call.argv), [['lake', 'exe', 'cache', 'get']])
+  assert.equal(runner.calls[0]?.cwd, join(root, 'formal'))
+})
+
 test('Lean run cache reuses dependencies while keeping worktrees isolated', async () => {
   const { root, resolved } = await fixture()
   const runDirectory = await mkdtemp(join(tmpdir(), 'tap-lean-run-cache-'))

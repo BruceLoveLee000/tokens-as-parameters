@@ -187,6 +187,25 @@ export class LeanVerifier implements ProofVerifier {
     return transplantDeclarations(baseSource, candidateSource, acceptedUnits)
   }
 
+  async prepareBaselineEnvironment(
+    resolvedCase: ResolvedCase,
+    worktree: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const argv = resolvedCase.manifest.lean.dependencyCacheArgv
+    if (argv === undefined) return
+    const receipt = await this.runner.run({
+      argv,
+      cwd: resolveInside(worktree, resolvedCase.manifest.lean.workingDirectory),
+      timeoutMs: 30 * 60_000,
+      maxOutputBytes: 8_000_000,
+      ...(signal === undefined ? {} : { signal }),
+    })
+    if (receipt.exitCode !== 0 || receipt.signal !== null) {
+      throw new Error(`Lean dependency cache preparation failed: ${receipt.stderr || receipt.stdout}`)
+    }
+  }
+
   async prepareRunEnvironment(
     resolvedCase: ResolvedCase,
     checkedWorktree: string,

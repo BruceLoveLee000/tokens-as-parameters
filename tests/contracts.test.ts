@@ -64,6 +64,15 @@ test('case manifest locks external proof dependencies by repository revision', (
   assert.equal(CaseManifestSchema.parse(value).externalDependencies[0]?.commit, 'b'.repeat(40))
 })
 
+test('case manifest may declare a deterministic dependency-cache preparation command', () => {
+  const value = manifest()
+  value.lean.dependencyCacheArgv = ['lake', 'exe', 'cache', 'get']
+  assert.deepEqual(
+    CaseManifestSchema.parse(value).lean.dependencyCacheArgv,
+    ['lake', 'exe', 'cache', 'get'],
+  )
+})
+
 test('experiment configuration supplies reproducible defaults without a workspace path', () => {
   const parsed = StartProofExperimentSchema.parse({ caseId: 'lean-positive' })
   assert.equal(parsed.search.rollouts, 2)

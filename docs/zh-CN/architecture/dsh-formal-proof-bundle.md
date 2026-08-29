@@ -78,7 +78,7 @@ Runtime 通过 DSH `agentPresets.composeFrom` 让 Prover 和 Reviewer 加入宿�
 
 ## Run 与 Epoch 执行流
 
-每次 Start 都创建新的 `runId`，不同 Run 不继承可变证明或参数状态。源 Case 会被复制到 `<runRoot>/<runId>/workspace`；生成目录和依赖目录会被排除；锁定 Hash 会再次校验；新的 Git 仓库会冻结 Run Baseline。Manifest 声明的外部仓库也必须处于干净状态和精确 Commit。预检查后，Lean Verifier 只捕获一次已下载的 Package Tree，再用写时复制把它播种到每个证明 Worktree。每次受信检查前仍会删除项目自身的 Build/Config 产物，因此缓存复用不会削弱 Candidate 隔离或 Checker 边界。同一 Run 内跨 Epoch 演进，任何 Candidate 都不会写回源 Case。
+每次 Start 都创建新的 `runId`，不同 Run 不继承可变证明或参数状态。源 Case 会被复制到 `<runRoot>/<runId>/workspace`；生成目录和依赖目录会被排除；锁定 Hash 会再次校验；新的 Git 仓库会冻结 Run Baseline。Manifest 声明的外部仓库也必须处于干净状态和精确 Commit。Case 可以声明确定性的依赖缓存命令（FDIV Adapter 使用 Mathlib 官方缓存下载），它会在受信 Baseline Build 前执行。预检查后，Lean Verifier 只捕获一次解析完成的 Package Tree，再用写时复制把它播种到每个证明 Worktree。每次受信检查前仍会删除项目自身的 Build/Config 产物，因此缓存复用不会削弱 Candidate 隔离或 Checker 边界。同一 Run 内跨 Epoch 演进，任何 Candidate 都不会写回源 Case。
 
 ```mermaid
 sequenceDiagram

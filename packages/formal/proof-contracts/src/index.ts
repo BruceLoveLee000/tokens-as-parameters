@@ -55,6 +55,7 @@ export const CaseManifestSchema = z.object({
     theoremName: z.string().trim().min(1),
     theoremSignatureSha256: z.string().regex(/^[a-f0-9]{64}$/),
     obligations: z.array(z.string().trim().min(1)).min(1),
+    dependencyCacheArgv: z.array(z.string().min(1)).min(1).optional(),
     buildArgv: z.array(z.string().min(1)).min(1).default(['lake', 'build']),
     allowedAxioms: z.array(z.string().trim().min(1)).default([
       'propext',

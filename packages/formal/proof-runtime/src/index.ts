@@ -422,6 +422,11 @@ export default class ProofRunService extends Service {
     await this.transition(record, 'PREPARING', 'validating the frozen baseline')
     const baselineWorktree = this.worktreePath(record.snapshot.runId, 0, 'baseline')
     await this.git.createWorktree(record.resolvedCase.root, record.snapshot.trustedCommit, baselineWorktree, record.controller.signal)
+    await this.verifier(record).prepareBaselineEnvironment?.(
+      record.resolvedCase,
+      baselineWorktree,
+      record.controller.signal,
+    )
     let baselineReceipt: ProofReceipt
     try {
       baselineReceipt = await this.verifier(record).check(
