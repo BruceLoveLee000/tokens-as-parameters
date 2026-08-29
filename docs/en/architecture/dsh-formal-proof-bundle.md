@@ -78,7 +78,7 @@ Runtime uses DSH `agentPresets.composeFrom` so Prover and Reviewer join the exac
 
 ## Run and epoch flow
 
-Every start creates a new `runId`; separate Runs do not inherit mutable proof or parameter state. The source Case is copied into `<runRoot>/<runId>/workspace`, generated/dependency directories are excluded, locked hashes are checked again, and a new Git repository freezes the Run baseline. Within a Run, state advances across Epochs. No candidate is written back to the source Case.
+Every start creates a new `runId`; separate Runs do not inherit mutable proof or parameter state. The source Case is copied into `<runRoot>/<runId>/workspace`, generated/dependency directories are excluded, locked hashes are checked again, and a new Git repository freezes the Run baseline. Manifest-declared external repositories must also be clean at their exact commits. After preflight, the Lean verifier captures the downloaded package tree once and hydrates each proof worktree with a copy-on-write clone. Generated project build/config output is still deleted before every trusted check, so cache reuse does not weaken candidate isolation or the checker boundary. Within a Run, state advances across Epochs. No candidate is written back to the source Case.
 
 ```mermaid
 sequenceDiagram
@@ -92,9 +92,9 @@ sequenceDiagram
 
   U->>C: start(registered case id, budget, rollout count)
   C->>G: verify clean source commit; copy Case; initialize Run Git baseline
-  C->>L: preflight frozen baseline
+  C->>L: preflight frozen baseline; capture dependency cache
   loop until proof or terminal budget
-    C->>P: parameter state vN + isolated sessions/worktrees
+    C->>P: parameter state vN + isolated sessions/worktrees + cloned dependency cache
     P->>P: search, use tools, record Insights, continue after request max-token boundaries
     P-->>L: candidate artifacts
     L-->>C: build, hygiene, signature, locked-input, obligation and axiom receipts

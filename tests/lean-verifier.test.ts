@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { access, mkdtemp, mkdir, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -72,6 +72,7 @@ async function fixture(): Promise<{ root: string; resolved: ResolvedCase }> {
     git: {},
     editableFiles: ['formal/Proof.lean'],
     lockedInputs: [{ path: 'formal/Spec.lean', sha256: locked }],
+    externalDependencies: [],
     lean: {
       workingDirectory: 'formal',
       proofFile: 'formal/Proof.lean',
@@ -173,6 +174,25 @@ test('verifier removes prior Lean build outputs before checking trust', async ()
   assert.equal(receipt.finalAccepted, true)
   await assert.rejects(access(buildArtifact))
   await assert.rejects(access(configArtifact))
+})
+
+test('Lean run cache reuses dependencies while keeping worktrees isolated', async () => {
+  const { root, resolved } = await fixture()
+  const runDirectory = await mkdtemp(join(tmpdir(), 'tap-lean-run-cache-'))
+  const lane = await mkdtemp(join(tmpdir(), 'tap-lean-lane-'))
+  await mkdir(join(lane, 'formal'), { recursive: true })
+  const sourcePackage = join(root, 'formal', '.lake', 'packages', 'mathlib', 'Mathlib.lean')
+  await mkdir(join(root, 'formal', '.lake', 'packages', 'mathlib'), { recursive: true })
+  await writeFile(sourcePackage, 'source dependency\n', 'utf8')
+
+  const verifier = new LeanVerifier(new FakeRunner())
+  await verifier.prepareRunEnvironment(resolved, root, runDirectory)
+  await verifier.hydrateRunEnvironment(resolved, runDirectory, lane)
+
+  const lanePackage = join(lane, 'formal', '.lake', 'packages', 'mathlib', 'Mathlib.lean')
+  assert.equal(await readFile(lanePackage, 'utf8'), 'source dependency\n')
+  await writeFile(lanePackage, 'lane mutation\n', 'utf8')
+  assert.equal(await readFile(sourcePackage, 'utf8'), 'source dependency\n')
 })
 
 test('checker-clean helper-only progress is checkpointable and semantically transplantable', async () => {

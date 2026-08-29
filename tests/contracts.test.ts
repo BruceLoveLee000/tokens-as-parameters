@@ -44,10 +44,24 @@ function manifest() {
 }
 
 test('case manifest keeps frozen inputs outside the editable surface', () => {
-  assert.equal(CaseManifestSchema.parse(manifest()).lean.buildArgv[0], 'lake')
+  const parsed = CaseManifestSchema.parse(manifest())
+  assert.equal(parsed.lean.buildArgv[0], 'lake')
+  assert.deepEqual(parsed.externalDependencies, [])
   const invalid = manifest()
   invalid.lockedInputs = [{ path: 'Proof.lean', sha256: HASH }]
   assert.equal(CaseManifestSchema.safeParse(invalid).success, false)
+})
+
+test('case manifest locks external proof dependencies by repository revision', () => {
+  const value = manifest()
+  Object.assign(value, {
+    externalDependencies: [{
+      name: 'floating-point-library',
+      root: '../vendor/floating-point-library',
+      commit: 'b'.repeat(40),
+    }],
+  })
+  assert.equal(CaseManifestSchema.parse(value).externalDependencies[0]?.commit, 'b'.repeat(40))
 })
 
 test('experiment configuration supplies reproducible defaults without a workspace path', () => {

@@ -4,6 +4,18 @@ import type { ResolvedCase } from '@tokens-as-parameters/proof-contracts/case-ma
 
 export interface ProofVerifier {
   readonly id: string
+  prepareRunEnvironment?(
+    resolvedCase: ResolvedCase,
+    checkedWorktree: string,
+    runDirectory: string,
+    signal?: AbortSignal,
+  ): Promise<void>
+  hydrateRunEnvironment?(
+    resolvedCase: ResolvedCase,
+    runDirectory: string,
+    worktree: string,
+    signal?: AbortSignal,
+  ): Promise<void>
   check(
     resolvedCase: ResolvedCase,
     worktree: string,

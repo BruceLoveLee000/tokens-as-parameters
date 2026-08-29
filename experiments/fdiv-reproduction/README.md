@@ -18,9 +18,12 @@ Before a run, record in an experiment manifest:
 - every locked-input SHA-256 and top-theorem signature SHA-256;
 - expected claim scope (`lean-model-vs-spec` for the current checkpoint);
 - Lean/Lake toolchain, DSH version, Bundle commit, model/provider route;
+- every external proof repository (including FloatSpec), its exact commit, and clean-worktree verification;
 - rollout count, parallelism, per-request output cap, per-lane cumulative budget, total budget, wall-time limit, reflection settings, and white-box-review setting.
 
 Do not mutate the benchmark to make the plugin load. If its historical manifest differs, add a new versioned `case.json` adapter commit while preserving the original theorem and locked files.
+
+The adapter is control-plane metadata, not a new proof input: it names the editable proof file, frozen hashes, target obligations, checker command, allowed axioms, and pinned external repositories. The Runtime cannot safely infer these experiment controls from Model/Spec/RTL source files alone.
 
 The first-release Runtime does not accept an external checkout path. After provenance and licensing are complete, commit the adapted Case under `benchmarks/`, verify that `chip_proof_cases` lists its exact id, and start every condition with `/chip_proof <case-id>`. Each invocation materializes a fresh Run baseline, so Runs cannot inherit prior proof state.
 

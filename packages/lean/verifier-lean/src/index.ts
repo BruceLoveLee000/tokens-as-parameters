@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
@@ -184,6 +185,62 @@ export class LeanVerifier implements ProofVerifier {
 
   consolidate(baseSource: string, candidateSource: string, acceptedUnits: readonly string[]): string {
     return transplantDeclarations(baseSource, candidateSource, acceptedUnits)
+  }
+
+  async prepareRunEnvironment(
+    resolvedCase: ResolvedCase,
+    checkedWorktree: string,
+    runDirectory: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted()
+    const source = join(
+      resolveInside(checkedWorktree, resolvedCase.manifest.lean.workingDirectory),
+      '.lake',
+      'packages',
+    )
+    const target = this.runPackagesCache(runDirectory)
+    await rm(target, { recursive: true, force: true })
+    try {
+      await mkdir(resolve(target, '..'), { recursive: true })
+      await cp(source, target, {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+        mode: constants.COPYFILE_FICLONE,
+      })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    signal?.throwIfAborted()
+  }
+
+  async hydrateRunEnvironment(
+    resolvedCase: ResolvedCase,
+    runDirectory: string,
+    worktree: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted()
+    const source = this.runPackagesCache(runDirectory)
+    const target = join(
+      resolveInside(worktree, resolvedCase.manifest.lean.workingDirectory),
+      '.lake',
+      'packages',
+    )
+    await rm(target, { recursive: true, force: true })
+    try {
+      await mkdir(resolve(target, '..'), { recursive: true })
+      await cp(source, target, {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+        mode: constants.COPYFILE_FICLONE,
+      })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    signal?.throwIfAborted()
   }
 
   async check(
@@ -378,6 +435,10 @@ export class LeanVerifier implements ProofVerifier {
       ...(signal === undefined ? {} : { signal }),
     })
     return receipt.exitCode === 0 && receipt.signal === null ? receipt.stdout : undefined
+  }
+
+  private runPackagesCache(runDirectory: string): string {
+    return join(runDirectory, 'verifier-cache', this.id, 'packages')
   }
 
   private async changedPathsSince(

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
@@ -314,6 +314,7 @@ export default class ProofRunService extends Service {
     const config = StartProofExperimentSchema.parse(input)
     const catalogCase = await resolveExperimentCase(this.config.benchmarkRoot, config.caseId)
     const sourceCommit = await this.git.requireCleanCommit(catalogCase.resolvedCase.root)
+    await this.verifyExternalDependencies(catalogCase.resolvedCase)
     const id = runId(catalogCase.caseId)
     const root = resolve(this.config.defaultRunRoot, id)
     const workspace = join(root, 'workspace')
@@ -385,6 +386,10 @@ export default class ProofRunService extends Service {
         sourceCommit,
         baselineCommit: baseline,
         workspace: record.snapshot.experiment.workspace,
+        externalDependencies: resolvedCase.manifest.externalDependencies.map(dependency => ({
+          name: dependency.name,
+          commit: dependency.commit,
+        })),
       },
     })
     record.task = this.execute(record, owner)
@@ -447,6 +452,12 @@ export default class ProofRunService extends Service {
     ) {
       throw new Error('frozen baseline failed the trusted preflight checker')
     }
+    await this.verifier(record).prepareRunEnvironment?.(
+      record.resolvedCase,
+      baselineWorktree,
+      record.directory,
+      record.controller.signal,
+    )
     record.snapshot.trustedObligationsClosed = baselineReceipt.obligationsClosed
     await this.persist(record)
     if (baselineReceipt.finalAccepted) {
@@ -616,6 +627,12 @@ export default class ProofRunService extends Service {
     const worktree = this.worktreePath(record.snapshot.runId, epoch, rolloutId)
     const baseCommit = record.snapshot.searchBaseCommit
     await this.git.createWorktree(record.resolvedCase.root, baseCommit, worktree, record.controller.signal)
+    await this.verifier(record).hydrateRunEnvironment?.(
+      record.resolvedCase,
+      record.directory,
+      worktree,
+      record.controller.signal,
+    )
     const sessionId = SessionId(`${record.snapshot.runId}-e${epoch}-${rolloutId}`)
     const routeParameterId = formalProverRouteParameterId(rolloutId)
     const route = requireTextParameter(parameters, routeParameterId).content
@@ -739,6 +756,12 @@ export default class ProofRunService extends Service {
     const rolloutId = 'consolidator'
     const worktree = this.worktreePath(record.snapshot.runId, epoch, rolloutId)
     await this.git.createWorktree(record.resolvedCase.root, record.snapshot.searchBaseCommit, worktree, record.controller.signal)
+    await this.verifier(record).hydrateRunEnvironment?.(
+      record.resolvedCase,
+      record.directory,
+      worktree,
+      record.controller.signal,
+    )
     const proofRelative = record.resolvedCase.manifest.lean.proofFile
     const proofPath = resolveInside(worktree, proofRelative)
     let source = await readFile(proofPath, 'utf8')
@@ -1063,6 +1086,20 @@ export default class ProofRunService extends Service {
       }
     }
     await this.persist(record)
+  }
+
+  private async verifyExternalDependencies(resolvedCase: ResolvedCase): Promise<void> {
+    for (const dependency of resolvedCase.manifest.externalDependencies) {
+      const root = isAbsolute(dependency.root)
+        ? dependency.root
+        : resolve(resolvedCase.root, dependency.root)
+      const actual = await this.git.requireCleanCommit(root)
+      if (actual !== dependency.commit) {
+        throw new Error(
+          `external dependency ${dependency.name} is at ${actual}, expected ${dependency.commit}`,
+        )
+      }
+    }
   }
 
   private async disposeRemainingHandles(record: RunRecord): Promise<void> {

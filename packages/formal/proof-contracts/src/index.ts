@@ -30,6 +30,12 @@ export const LockedInputSchema = z.object({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 })
 
+export const ExternalDependencySchema = z.object({
+  name: z.string().trim().min(1),
+  root: z.string().trim().min(1),
+  commit: z.string().regex(/^[a-f0-9]{40,64}$/),
+})
+
 export const CaseManifestSchema = z.object({
   schemaVersion: z.literal(CASE_SCHEMA_VERSION),
   caseId: z.string().trim().min(1).max(160),
@@ -40,6 +46,7 @@ export const CaseManifestSchema = z.object({
   }).default({}),
   editableFiles: z.array(RelativePathSchema).min(1),
   lockedInputs: z.array(LockedInputSchema).min(1),
+  externalDependencies: z.array(ExternalDependencySchema).default([]),
   lean: z.object({
     workingDirectory: RelativePathSchema,
     proofFile: RelativePathSchema,

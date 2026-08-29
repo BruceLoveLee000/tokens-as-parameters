@@ -78,7 +78,7 @@ Runtime 通过 DSH `agentPresets.composeFrom` 让 Prover 和 Reviewer 加入宿�
 
 ## Run 与 Epoch 执行流
 
-每次 Start 都创建新的 `runId`，不同 Run 不继承可变证明或参数状态。源 Case 会被复制到 `<runRoot>/<runId>/workspace`；生成目录和依赖目录会被排除；锁定 Hash 会再次校验；新的 Git 仓库会冻结 Run Baseline。同一 Run 内跨 Epoch 演进，任何 Candidate 都不会写回源 Case。
+每次 Start 都创建新的 `runId`，不同 Run 不继承可变证明或参数状态。源 Case 会被复制到 `<runRoot>/<runId>/workspace`；生成目录和依赖目录会被排除；锁定 Hash 会再次校验；新的 Git 仓库会冻结 Run Baseline。Manifest 声明的外部仓库也必须处于干净状态和精确 Commit。预检查后，Lean Verifier 只捕获一次已下载的 Package Tree，再用写时复制把它播种到每个证明 Worktree。每次受信检查前仍会删除项目自身的 Build/Config 产物，因此缓存复用不会削弱 Candidate 隔离或 Checker 边界。同一 Run 内跨 Epoch 演进，任何 Candidate 都不会写回源 Case。
 
 ```mermaid
 sequenceDiagram
@@ -92,9 +92,9 @@ sequenceDiagram
 
   U->>C: 启动已注册 Case id、预算与 Rollout 数
   C->>G: 校验干净 Source Commit；复制 Case；初始化 Run Git Baseline
-  C->>L: 冻结 Baseline 预检查
+  C->>L: 冻结 Baseline 预检查；捕获依赖缓存
   loop 直到证明成功或终止预算
-    C->>P: 参数状态 vN + 隔离 Session/Worktree
+    C->>P: 参数状态 vN + 隔离 Session/Worktree + 克隆依赖缓存
     P->>P: 搜索、调用工具、记录 Insight，并在单次 max-token 后续跑
     P-->>L: 候选产物
     L-->>C: Build、Hygiene、Signature、锁定输入、Obligation 与 Axiom Receipt

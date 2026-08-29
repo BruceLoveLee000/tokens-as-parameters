@@ -36,6 +36,15 @@
 | 面向 Lean Kernel Deep Recursion/可归约性病态的证明接口 Rebaseline | **缺失** | 历史成功实验使用了独立版本化的新证明接口；Bundle 尚未自动化该治理流程 |
 | 历史 Case Schema 迁移与 FDIV 14/14 端到端复跑 | **尚未证明** | 单测与契约检查已通过，但经验等价仍需复现实验 |
 
+## 延后处理的语义覆盖
+
+第一轮复现会逐字保持历史 8/14 Lean Model ↔ Lean Spec Claim，不在本轮偷偷改变问题。下面两个更大的 Claim 明确放入 TODO：
+
+1. 把冻结算术语义从 binary32 RNE + Flush-to-zero 升级为完整 IEEE-754，包括渐进下溢和经过独立审查的 Oracle 边界；
+2. 单独认证 RTL Fidelity：要么采用受检查的 RTL→Lean 转换，要么建立从 Verilog 实现到锁定 Lean Model 的显式等价链。
+
+本 Case 仍把 FloatSpec 作为外部证明依赖。适配后的 Manifest 会锁定其精确仓库 Commit；Runtime 会拒绝脏工作区或 Commit 不匹配。这提高的是可复现性，并不会自动扩大顶层定理的 Claim Scope。
+
 ## 回退判断
 
 基础并行搜索、反思、确定性信任、预算、持久化和最终审查闭环没有回退。Core 重构还改善了最核心的研究变量：目标 Agent 显式定义参数；每个实例独立选择冻结或开放；参数有版本、有精确 Rollout 归因，并进行原子更新。

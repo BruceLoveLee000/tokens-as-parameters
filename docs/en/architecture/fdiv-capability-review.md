@@ -36,6 +36,15 @@ The comparison concerns mechanisms that contributed to the result. It does not c
 | proof-interface rebaseline workflow for Lean kernel recursion/pathological reducibility | **missing** | the successful experiment required a separately versioned proof-facing interface candidate; the Bundle does not automate this governance path |
 | historical case schema migration and end-to-end FDIV 14/14 replay | **not yet demonstrated** | unit/contract tests are green, but empirical parity remains an open reproduction gate |
 
+## Deferred semantic coverage
+
+The first reproduction keeps the historical 8/14 Lean Model ↔ Lean Spec claim byte-for-byte stable. Two broader claims are deliberately TODOs, not silently folded into this experiment:
+
+1. upgrade the frozen arithmetic profile from binary32 RNE with flush-to-zero behavior to complete IEEE-754 semantics, including gradual underflow and an independently reviewed oracle boundary;
+2. certify RTL fidelity separately, either by a checked RTL-to-Lean translation or an explicit equivalence chain from the Verilog implementation to the locked Lean Model.
+
+FloatSpec remains an external proof dependency in this Case. The adapted manifest pins its exact repository commit and Runtime refuses a dirty or mismatched checkout. This improves reproducibility; it does not by itself enlarge the theorem's claim scope.
+
 ## Regression judgment
 
 There is no regression in the basic parallel-search, reflection, deterministic-trust, budget, persistence, or final-review loop. The Core refactor improves the main research variable: parameters are now explicitly defined by the target Agent, individually frozen or opened, versioned, attributed to exact Rollouts, and updated atomically.
