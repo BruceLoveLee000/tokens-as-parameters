@@ -697,6 +697,7 @@ export default class ProofRunService extends Service {
           verifier: this.verifier(record),
           git: this.git,
           signal: record.controller.signal,
+          maxCumulativeTokens: record.snapshot.config.search.maxCumulativeTokensPerLane,
         })
       },
     })

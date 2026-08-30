@@ -67,7 +67,7 @@ Bundle 不重复实现 Code Agent、Agent Loop、文件/Shell 工具、上下文
 | `task.memory` | 简洁的 Verifier 证据、可复用发现与被否定假设 | Agent 实例可选择；默认开放 |
 | `task.plan` | 公共证明搜索策略与优先级 | 可选择；默认开放 |
 | `lane.<id>.route` | 每路独立搜索任务 | 可选择；默认开放 |
-| 工具 | 继承宿主 Session 的官方 Code Agent Preset，加 `record_insight` 与 `lean_check_candidate` | 本实验冻结 |
+| 工具 | 继承宿主 Session 的官方 Code Agent Preset，加 `record_insight`、`lean_check_candidate` 与 `submit_proof_candidate` | 本实验冻结 |
 | Skill | 由安装的 DSH 环境提供 | Bundle 不携带 FDIV 专属 Skill |
 
 这张表就是当前实验的模型定义。Core 只校验和版本化已注册参数。未来数学 Prover 或 Code Agent Trainer 可以注册完全不同的 ID 和描述，无需修改 Core。
@@ -110,7 +110,7 @@ sequenceDiagram
   C->>G: 持久化最终 Receipt 与只读白盒审查
 ```
 
-每路拥有独立 DSH Session 和 Detached Git Worktree。若一次响应因为输出上限结束，只要该路累计预算仍有剩余，就在同一 Session 中继续。停滞和路线同质化属于需要观测的实验现象，不是硬编码停止条件。Run 只因证明通过、用户取消、总 Token/总时长耗尽或不可恢复的基础设施错误而结束。
+每路拥有独立 DSH Session 和 Detached Git Worktree。若一次响应因为输出上限结束，只要该路累计预算仍有剩余，就在同一 Session 中继续。如果一个多 Step 的 Code Agent Turn 穿过累计预算边界，下一个 Step 会收到持久化的软边界消息，工具面同时收缩为只保留 `submit_proof_candidate`；提交会结束本 Turn，并把当前 Worktree 交给 Controller 自有 Checker。由于 Provider 用量只能在一次模型响应完成后确定，单个响应可以略微越过配置值，但越界后不能再通过无界工具循环持续消耗。停滞和路线同质化属于需要观测的实验现象，不是硬编码停止条件。Run 只因证明通过、用户取消、总 Token/总时长耗尽或不可恢复的基础设施错误而结束。
 
 ## 相对反思与信息流
 

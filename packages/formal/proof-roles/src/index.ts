@@ -1,6 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Service } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { z } from 'zod'
@@ -15,6 +16,7 @@ import type {
 } from '@tokens-as-parameters/proof-contracts'
 import type { ResolvedCase } from '@tokens-as-parameters/proof-contracts/case-manifest'
 import type { GitState } from '@tokens-as-parameters/core-state-git'
+import { sessionTokens } from '@tokens-as-parameters/core-telemetry'
 import type { ProofVerifier } from '@tokens-as-parameters/proof-verification'
 
 declare module '@deepseek-ai/cordis' {
@@ -110,6 +112,7 @@ export interface ProverRoleOptions {
   verifier: ProofVerifier
   git: GitState
   signal: AbortSignal
+  maxCumulativeTokens: number
 }
 
 export interface ReviewerRoleOptions {
@@ -128,7 +131,7 @@ function restrictInheritedTools(
   requested: readonly string[],
   required: readonly string[],
   role: string,
-): void {
+): string[] {
   const allowed = requested.filter(name => agentCtx.tools.get(name, agent) !== undefined)
   const missing = required.filter(name => !allowed.includes(name))
   if (missing.length > 0) {
@@ -137,10 +140,11 @@ function restrictInheritedTools(
     )
   }
   agentCtx.tools.restrict({ allow: allowed })
+  return allowed
 }
 
-function restrictProverTools(agentCtx: Context, agent: Agent): void {
-  restrictInheritedTools(
+function restrictProverTools(agentCtx: Context, agent: Agent): string[] {
+  return restrictInheritedTools(
     agentCtx,
     agent,
     ['bash', 'read', 'write', 'edit', 'glob', 'grep', 'skill', 'get_goal'],
@@ -157,6 +161,10 @@ function restrictToReadOnly(agentCtx: Context, agent: Agent): void {
     ['read'],
     'white-box reviewer',
   )
+}
+
+export function shouldEnterProverSubmitOnly(currentTokens: number, maxCumulativeTokens: number): boolean {
+  return currentTokens >= maxCumulativeTokens
 }
 
 export default class ProofRoleService extends Service {
@@ -180,6 +188,7 @@ export default class ProofRoleService extends Service {
         'Never edit the formal specification, model, theorem signature, case manifest, checker, or locked inputs.',
         'Use Lean feedback as evidence. Intermediate sorry declarations may remain only for obligations not yet closed; never add admit, axioms, unsafe declarations, theorem shadowing, or domain restrictions.',
         'Call record_insight when a material hypothesis, failure explanation, or reusable proof fact becomes clear. The runtime commits the current proof state with the insight.',
+        'Call submit_proof_candidate when you are ready for the controller to check the current editable proof state. At the cumulative lane-token boundary, the runtime will leave only this submission tool available.',
         'A candidate is trusted only after the controller-owned checker accepts it. Do not claim completion from your own shell output.',
       ].join('\n'),
     })
@@ -199,7 +208,10 @@ export default class ProofRoleService extends Service {
       text: `This lane's independent search assignment:\n${route.content}`,
     })
 
-    agentCtx.tools.register(defineTool({
+    let submitOnly = false
+    const searchToolDisposers: Array<() => void> = []
+
+    searchToolDisposers.push(agentCtx.tools.register(defineTool({
       name: 'record_insight',
       description: 'Commit the current editable proof state together with one concise evidence-backed insight.',
       parameters: {
@@ -220,9 +232,9 @@ export default class ProofRoleService extends Service {
         )
         return JSON.stringify(result)
       },
-    }))
+    })))
 
-    agentCtx.tools.register(defineTool({
+    searchToolDisposers.push(agentCtx.tools.register(defineTool({
       name: 'lean_check_candidate',
       description: 'Run the independent Lean build, locked-input, theorem-signature, hygiene, obligation, and final axiom checks on the current worktree.',
       parameters: {},
@@ -237,12 +249,53 @@ export default class ProofRoleService extends Service {
         )
         return JSON.stringify(receipt)
       },
+    })))
+
+    agentCtx.tools.register(defineTool({
+      name: 'submit_proof_candidate',
+      description: 'Stop this proof-search turn and hand the current editable proof state to the controller-owned checker.',
+      parameters: {},
+      output: STRING_OUTPUT,
+      async execute(_args, exec) {
+        exec.concludeTurn()
+        return JSON.stringify({ submitted: true })
+      },
     }))
 
     // The role keeps the official Code Agent's filesystem/shell surface while
     // removing outer lifecycle controls such as chip_proof and proof_run_stop.
     // Scope-local proof tools above remain visible by DSH restriction design.
-    restrictProverTools(agentCtx, options.agent)
+    const inheritedProofTools = restrictProverTools(agentCtx, options.agent)
+
+    agentCtx.on('agent/pre-step', async ({ agent }, next): Promise<PreStepDecision> => {
+      const decision = await next()
+      if (
+        decision.kind === 'reject'
+        || submitOnly
+        || !shouldEnterProverSubmitOnly(
+          sessionTokens(agent.session.events),
+          options.maxCumulativeTokens,
+        )
+      ) {
+        return decision
+      }
+      submitOnly = true
+      searchToolDisposers.splice(0).forEach(dispose => dispose())
+      agentCtx.tools.restrict({ deny: inheritedProofTools })
+      return {
+        kind: 'enter',
+        messages: [
+          ...decision.messages,
+          createUserMessage({
+            source: { kind: 'user' },
+            content: [{
+              type: 'text',
+              text: `This lane reached its ${options.maxCumulativeTokens.toLocaleString()} token cumulative search boundary. Only submit_proof_candidate remains available. Submit the current editable proof state now; the controller will run the independent checker after this turn. Do not attempt unavailable historical tools.`,
+            }],
+          }),
+        ],
+      }
+    })
   }
 
   installReviewer(agentCtx: Context, options: ReviewerRoleOptions): ReviewerCapture {

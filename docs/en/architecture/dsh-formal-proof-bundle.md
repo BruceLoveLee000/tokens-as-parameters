@@ -67,7 +67,7 @@ The Bundle does not reimplement the Code Agent, Agent Loop, filesystem/shell too
 | `task.memory` | concise verifier-backed facts, reusable discoveries, and invalidated assumptions | selectable per Agent instance; enabled by default |
 | `task.plan` | shared proof-search policy and prioritization | selectable; enabled by default |
 | `lane.<id>.route` | lane-specific independent assignment | selectable; enabled by default |
-| tools | owner session's official Code Agent preset plus `record_insight` and `lean_check_candidate` | frozen in this experiment |
+| tools | owner session's official Code Agent preset plus `record_insight`, `lean_check_candidate`, and `submit_proof_candidate` | frozen in this experiment |
 | Skills | supplied by the installed DSH environment | no FDIV-specific Skill is bundled |
 
 This table is the model definition for the current experiment. Core merely validates and versions the registered parameters. A future mathematical prover or Code Agent trainer can register different ids and descriptions without changing Core.
@@ -110,7 +110,7 @@ sequenceDiagram
   C->>G: persist final receipt and read-only white-box review
 ```
 
-Each lane has an independent DSH Session and detached Git worktree. A response ending at the per-request output boundary continues in the same session while cumulative lane budget remains. Stagnation and route similarity are observable experimental outcomes; they are not hard-coded stop conditions. A Run ends on accepted proof, explicit cancellation, total-token or wall-time exhaustion, or unrecoverable infrastructure failure.
+Each lane has an independent DSH Session and detached Git worktree. A response ending at the per-request output boundary continues in the same session while cumulative lane budget remains. If a multi-step Code Agent turn crosses the cumulative boundary, the next step receives a durable soft-boundary message and its tool surface is reduced to `submit_proof_candidate`; submission ends the turn and hands the current worktree to the controller-owned checker. Because provider usage is known only after a model response completes, one response can cross the configured number, but an unbounded tool loop cannot keep spending after that crossing. Stagnation and route similarity are observable experimental outcomes; they are not hard-coded stop conditions. A Run ends on accepted proof, explicit cancellation, total-token or wall-time exhaustion, or unrecoverable infrastructure failure.
 
 ## Relative reflection and information flow
 
