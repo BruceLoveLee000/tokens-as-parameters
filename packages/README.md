@@ -13,13 +13,16 @@ packages/
 │   └── telemetry/                      domain-neutral DSH trajectory projection
 ├── formal/
 │   ├── proof-contracts/                case, receipt, run, and trust contracts
+│   ├── proof-agent/                    replaceable Prover provider registry
+│   ├── prover-code-agent/              official Code Agent Prover provider
+│   ├── proof-loss/                     replaceable Loss provider registry
+│   ├── loss-lean-dual/                 Lean plus white-box Loss provider
 │   ├── proof-observer/                 durable proof events and snapshots
-│   ├── proof-roles/                    Formal Agent definition plus Prover/Reviewer roles
 │   ├── proof-runtime/                  formal-proof Epoch/Rollout engine
 │   ├── proof-verification/             verifier service and provider registry
 │   └── tool-proof-run/                 model-facing run controls
 ├── lean/
-│   └── verifier-lean/                  Lean verifier and declaration consolidation
+│   └── verifier-lean/                  deterministic Lean rule checker
 ├── chips/                              reserved hardware-domain boundary
 └── bundle/
     └── formal-proof/                   composition only; no domain implementation

@@ -7,8 +7,9 @@
     { "path": "../../core/state-git" },
     { "path": "../../core/telemetry" },
     { "path": "../proof-contracts" },
+    { "path": "../proof-agent" },
+    { "path": "../proof-loss" },
     { "path": "../proof-observer" },
-    { "path": "../proof-roles" },
     { "path": "../proof-verification" }
   ]
 }

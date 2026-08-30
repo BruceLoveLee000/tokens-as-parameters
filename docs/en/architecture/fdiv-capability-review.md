@@ -14,24 +14,24 @@ The comparison concerns mechanisms that contributed to the result. It does not c
 |---|---|---|
 | official DSH Code Agent, Agent Loop, Sessions, tools, compaction, and telemetry | retained | Bundle composes official DSH packages instead of replacing them |
 | independent rollout Sessions and Git worktrees | retained | every lane gets a stable session id and detached worktree |
-| continuation after per-request max-token termination | retained | the same Session continues while cumulative lane budget remains |
-| long per-lane, total-token, and wall-time budgets | retained | all remain explicit run controls; stagnation is not an implicit stop |
+| continuation after per-request max-token termination | retained | the same Session continues while model-step depth remains |
+| long search depth, total-token, and wall-time budgets | improved | model steps are primary depth; cache-read volume no longer prematurely ends a lane |
 | controller-owned Lean build and locked-input/signature/hygiene checks | retained | model claims cannot advance progress |
 | per-obligation axiom audit and all-obligation final gate | retained | a declaration depending on forbidden axioms cannot inflate trusted progress |
-| read-only white-box reward-hacking review | retained | veto-only after deterministic success |
-| declaration-level semantic integration instead of `git merge` | retained | newly closed obligations and checker/axiom-clean changed helper theorems are transplanted and fully rechecked |
-| autonomous multi-tool Reflector | retained | parameter usage, lane receipts, trace ranges/search, state nodes, and transition diffs are available |
-| reflection submit-only boundary and deterministic fallback | retained | current-step soft instruction, one schema retry, then neutral update |
-| Prover-selected `record_insight` Git nodes | retained | proof state, concise summary, and Insight artifact are committed together |
+| read-only white-box reward-hacking review | improved | now part of replaceable Loss after every rollout, so findings feed the next optimization step |
+| cross-lane solution-state integration | redesigned | no regex transplantation; Optimizer selects parents and semantic integration is an ordinary Prover task followed by Loss |
+| autonomous multi-tool Reflector | improved | adds complete Loss inspection, bounded commit-file reads, and cross-state file comparison |
+| reflection submit-only boundary and deterministic fallback | retained | model-step boundary, one schema retry, then neutral decision |
+| Prover-selected `record_insight` Git nodes | improved | safe changed proof sources, concise summary, and Insight artifact are committed together |
 | multi-parent reflection provenance DAG | retained | lane tips are parents; unverified branch trees are not semantically merged |
 | trusted proof commit separated from search/provenance state | retained | reflection cannot itself create proof progress |
 | durable Run id, snapshots, events, and native session history | retained | refresh/reconnect does not erase controller evidence |
 | exact attribution from text parameter revision to rollout result | improved | new context snapshots and parameter-usage inspection remove a previous ambiguity |
-| generic reflection output | improved | Reflector updates any subset of domain-registered parameters atomically; Core no longer assumes common prompt/routes |
+| generic reflection output | improved | Reflector updates parameter subsets and selects each next lane's eligible parent/task atomically |
 | FDIV-specific Skill or leaked solution route | deliberately absent | the generic Bundle contains no benchmark answer; this supports cleaner ablations |
 | dedicated side-by-side SpecRefine UI | scope change | official DSH Sessions replace the custom UI; research evidence remains durable, but UX parity is not claimed |
-| checker-clean helper-only checkpoint promotion | restored | changed/new helper theorems are compared with the Epoch base, axiom-audited, semantically transplanted, rechecked, and promoted without inflating named-obligation counts |
-| richer Proof Capsule integration from multiple lanes | partially retained | theorem/lemma units are integrated across lanes; arbitrary definitions and a standalone Capsule schema are not yet supported |
+| checker-clean helper-only state retention | retained without fake reward | helper states remain `VERIFIED` and selectable, but do not advance named-obligation reward automatically |
+| richer Proof Capsule integration from multiple lanes | redesigned | full candidate commits remain branches; Optimizer can inspect and schedule semantic integration without a standalone Capsule schema |
 | certified counterexample and `DISPROVED` path | **missing** | model-proposed counterexamples cannot produce a terminal refutation verdict |
 | proof-interface rebaseline workflow for Lean kernel recursion/pathological reducibility | **missing** | the successful experiment required a separately versioned proof-facing interface candidate; the Bundle does not automate this governance path |
 | historical case schema migration and end-to-end FDIV 14/14 replay | **not yet demonstrated** | unit/contract tests are green, but empirical parity remains an open reproduction gate |
@@ -47,9 +47,9 @@ FloatSpec remains an external proof dependency in this Case. The adapted manifes
 
 ## Regression judgment
 
-There is no regression in the basic parallel-search, reflection, deterministic-trust, budget, persistence, or final-review loop. The Core refactor improves the main research variable: parameters are now explicitly defined by the target Agent, individually frozen or opened, versioned, attributed to exact Rollouts, and updated atomically.
+There is no regression in the basic parallel-search, reflection, deterministic-trust, budget, or persistence loop. The refactor makes the research variables explicit: Prover, Loss, and Optimizer are independently replaceable; parameters are versioned and attributable; and each next rollout parent/task is part of the optimizer decision.
 
-The helper-only gap found during this review was fixed rather than waived: the verifier now discovers changed concrete helper theorems relative to the Epoch base, audits their axioms, and the integrator transplants only accepted units before a full recheck. Named progress remains unchanged for a helper-only checkpoint.
+The helper-only gap is handled without a merger: the verifier discovers and axiom-audits concrete helper changes, the candidate commit remains selectable, and named progress remains unchanged until a real obligation closes.
 
 The remaining `DISPROVED`, arbitrary-definition Capsule, and proof-interface rebaseline gaps are meaningful, but they concern task coverage, integration breadth, and recovery rather than the soundness of a positive proof accepted by the current pipeline.
 
@@ -58,7 +58,7 @@ The remaining `DISPROVED`, arbitrary-definition Capsule, and proof-interface reb
 - TypeScript project-reference build and typecheck;
 - contract tests for parameter definition, instance feedback selection, frozen/stale rejection, exact exposure, atomic replacement, and Formal-owned parameter ids;
 - Git DAG tests for reflection provenance and parameter-state persistence;
-- existing Lean parsing, hygiene, obligation, axiom, unauthorized-change, consolidation, helper-checkpoint, package-boundary, and telemetry tests;
+- Lean parsing, all-changed-source hygiene, obligation, axiom, helper-state, plugin-seam, package-boundary, and step/token telemetry tests;
 - package dependency rule that Core does not depend on Formal, Lean, Chips, or Bundle packages.
 
 ## Reproduction gate
@@ -67,7 +67,7 @@ Do not label this implementation “FDIV reproduced” until all of the followin
 
 1. a licensed, versioned case accepted by the current manifest schema;
 2. immutable baseline commit and locked-input hashes;
-3. complete Prover/Reflector/Reviewer Sessions and run ledger;
+3. complete Prover/Loss-Judge/Optimizer Sessions and run ledger;
 4. 14/14 final Lean receipt with per-obligation and top-theorem axiom audits;
-5. white-box review;
+5. per-rollout Loss reports, white-box findings, and Optimizer decisions;
 6. exact input, output, cache, reasoning, wall-time, and configuration accounting.

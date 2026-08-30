@@ -16,7 +16,7 @@ Not every token is a parameter. A token becomes parameter-like when it is optimi
 
 Research preview. The first release is intentionally **experiment-only**. It runs repository-versioned immutable Cases, materializes a fresh Run-owned Git workspace for each invocation, and never edits or merges back into the Case. Production operation on user-selected workspaces is deferred to [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4).
 
-The DSH-native formal-proof system is a workspace of independent Core, Formal, Lean, Tool, and Bundle packages targeting the `0.1.1-rc.2` public extension APIs. It provides isolated parallel provers, verifier-gated Git checkpoints, a replaceable token Optimizer, declaration-level consolidation, durable run evidence, and final white-box review.
+The DSH-native formal-proof system is a workspace of independent Core, Formal, Lean, Tool, and Bundle packages targeting the `0.1.1-rc.2` public extension APIs. It provides replaceable Prover, Loss, and Optimizer plugins; isolated parallel search states; per-rollout Lean plus white-box feedback; optimizer-selected Git parents; and durable run evidence.
 
 ## Research question
 
@@ -60,7 +60,7 @@ See the [Core architecture and Optimizer provider contract](docs/en/architecture
 
 - Run the licensed FDIV R14 checkpoint end to end through the packaged Bundle.
 - Add reward-oriented context consolidation rather than generic summarization.
-- Execute equal-budget ablations across single-agent, independent-parallel, self-reflection, group-reflection, persistent-insight, and consolidation conditions.
+- Execute equal-budget ablations across Prover, Loss, Optimizer, parent-selection, reflection, and persistent-Insight conditions.
 - Add user-workspace production mode only after the experiment path is stable ([Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)).
 
 ## Repository map

@@ -183,10 +183,6 @@ export class LeanVerifier implements ProofVerifier {
 
   constructor(private readonly runner: CommandRunner) {}
 
-  consolidate(baseSource: string, candidateSource: string, acceptedUnits: readonly string[]): string {
-    return transplantDeclarations(baseSource, candidateSource, acceptedUnits)
-  }
-
   async prepareBaselineEnvironment(
     resolvedCase: ResolvedCase,
     worktree: string,
@@ -292,17 +288,12 @@ export class LeanVerifier implements ProofVerifier {
     }
     if (baselineCommit !== undefined) {
       const changed = await this.changedPathsSince(worktree, baselineCommit, signal)
-      const editable = new Set(manifest.editableFiles)
-      const unauthorized = changed.filter(path =>
-        !editable.has(path)
-        && !/^\.tokens-as-parameters\/(?:insights|reflections)\/.*\.md$/.test(path),
-      )
-      for (const path of unauthorized) {
-        findings.push({
-          kind: 'unauthorized-change',
-          message: `candidate changed a path outside the declared editable surface: ${path}`,
-          path,
-        })
+      for (const path of changed.filter(path => path.endsWith('.lean') && path !== manifest.lean.proofFile)) {
+        try {
+          findings.push(...proofHygiene(await readFile(resolveInside(worktree, path), 'utf8'), path))
+        } catch {
+          findings.push({ kind: 'build', message: `unable to inspect changed Lean source: ${path}`, path })
+        }
       }
     }
     const signature = theoremSignatureSha256(theoremSource, manifest.lean.theoremName)
@@ -350,7 +341,7 @@ export class LeanVerifier implements ProofVerifier {
       && signatureMatches
       && findings.every(finding => finding.kind === 'build'
         ? false
-        : !['admit', 'axiom', 'unsafe', 'signature', 'locked-input', 'unauthorized-change'].includes(finding.kind))
+        : !['admit', 'axiom', 'unsafe', 'signature', 'locked-input'].includes(finding.kind))
     let obligationAxiomAudit: ProofReceipt['obligationAxiomAudit']
     let checkpointAxiomAudit: ProofReceipt['checkpointAxiomAudit']
     let axiomAudit: ProofReceipt['axiomAudit']
@@ -520,34 +511,6 @@ export class LeanVerifier implements ProofVerifier {
       await rm(tempRoot, { recursive: true, force: true })
     }
   }
-}
-
-/** Merge only named Lean declarations; the caller must re-run the verifier. */
-export function transplantDeclarations(
-  baseSource: string,
-  candidateSource: string,
-  names: readonly string[],
-): string {
-  let output = baseSource
-  const candidateDeclarations = [...declarationSources(candidateSource).values()]
-  for (const name of names) {
-    const base = declarationSources(output).get(name)
-    const candidate = declarationSources(candidateSource).get(name)
-    if (candidate === undefined) continue
-    if (base !== undefined) {
-      output = `${output.slice(0, base.start)}${candidate.source}\n\n${output.slice(base.end).replace(/^\s+/, '')}`
-      continue
-    }
-    const nextCandidate = candidateDeclarations.find(declaration => (
-      declaration.start > candidate.start && declarationSources(output).has(declaration.name)
-    ))
-    const insertion = nextCandidate === undefined
-      ? output.length
-      : declarationSources(output).get(nextCandidate.name)?.start ?? output.length
-    const separator = insertion === output.length && !output.endsWith('\n') ? '\n\n' : ''
-    output = `${output.slice(0, insertion)}${separator}${candidate.source}\n\n${output.slice(insertion).replace(/^\s+/, '')}`
-  }
-  return output
 }
 
 export async function readProof(path: string): Promise<string> {

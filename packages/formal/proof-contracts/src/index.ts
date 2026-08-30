@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type {
   ParameterUpdatePlan,
+  OptimizationDecision,
   TextParameterContextSnapshot,
   TextParameterState,
   TokenUsageSummary,
@@ -10,6 +11,7 @@ import type { CommandReceipt } from '@tokens-as-parameters/core-state-git'
 
 export type {
   ParameterUpdatePlan,
+  OptimizationDecision,
   TextParameterContextSnapshot,
   TextParameterState,
   TokenUsageSummary,
@@ -94,11 +96,15 @@ export type CaseManifest = z.infer<typeof CaseManifestSchema>
 export const ProofSearchConfigSchema = z.object({
   provider: z.string().trim().min(1).default('deepseek-official'),
   model: z.string().trim().min(1).default('deepseek-v4-flash'),
+  prover: z.string().trim().min(1).default('formal-code-agent'),
+  loss: z.string().trim().min(1).default('lean-dual-check'),
   optimizer: z.string().trim().min(1).default('relative-reflection'),
   verifier: z.string().trim().min(1).default('lean'),
   rollouts: z.number().int().min(1).max(16).default(2),
   maxParallel: z.number().int().min(1).max(16).default(2),
   maxOutputTokensPerRequest: z.number().int().min(1_000).max(512_000).default(64_000),
+  maxStepsPerLane: z.number().int().min(1).max(10_000).default(200),
+  /** @deprecated Retained for old experiment manifests; model-step depth is the primary lane boundary. */
   maxCumulativeTokensPerLane: z.number().int().min(10_000).max(100_000_000).default(20_000_000),
   totalTokenBudget: z.number().int().min(10_000).max(1_000_000_000).default(300_000_000),
   maxWallTimeSeconds: z.number().int().min(60).max(604_800).default(43_200),
@@ -109,12 +115,22 @@ export const ProofSearchConfigSchema = z.object({
   }).default({ memory: true, plan: true, routes: true }),
   reflection: z.object({
     enabled: z.boolean().default(true),
+    maxSteps: z.number().int().min(1).max(1_000).default(32),
+    /** @deprecated Retained for old manifests; maxSteps is the active boundary. */
     softTokenBudget: z.number().int().min(10_000).max(10_000_000).default(500_000),
     maxOutputTokensPerRequest: z.number().int().min(4_000).max(256_000).default(64_000),
   }).default({
     enabled: true,
+    maxSteps: 32,
     softTokenBudget: 500_000,
     maxOutputTokensPerRequest: 64_000,
+  }),
+  lossJudge: z.object({
+    maxSteps: z.number().int().min(1).max(1_000).default(24),
+    maxOutputTokensPerRequest: z.number().int().min(4_000).max(256_000).default(32_000),
+  }).default({
+    maxSteps: 24,
+    maxOutputTokensPerRequest: 32_000,
   }),
   whiteboxReview: z.boolean().default(true),
 }).superRefine((value, context) => {
@@ -134,19 +150,27 @@ export const StartProofExperimentSchema = z.object({
   search: ProofSearchConfigSchema.default({
     provider: 'deepseek-official',
     model: 'deepseek-v4-flash',
+    prover: 'formal-code-agent',
+    loss: 'lean-dual-check',
     optimizer: 'relative-reflection',
     verifier: 'lean',
     rollouts: 2,
     maxParallel: 2,
     maxOutputTokensPerRequest: 64_000,
+    maxStepsPerLane: 200,
     maxCumulativeTokensPerLane: 20_000_000,
     totalTokenBudget: 300_000_000,
     maxWallTimeSeconds: 43_200,
     parameterFeedback: { memory: true, plan: true, routes: true },
     reflection: {
       enabled: true,
+      maxSteps: 32,
       softTokenBudget: 500_000,
       maxOutputTokensPerRequest: 64_000,
+    },
+    lossJudge: {
+      maxSteps: 24,
+      maxOutputTokensPerRequest: 32_000,
     },
     whiteboxReview: true,
   }),
@@ -235,10 +259,13 @@ export interface LaneEvidence {
   epoch: number
   route: string
   contextSnapshot: TextParameterContextSnapshot
+  baseCommit: string
   commit?: string
+  steps: number
   tokens: number
   tokenUsage: TokenUsageSummary
   receipt: ProofReceipt
+  loss: ProofLossReport
   traceTail: TraceEntry[]
 }
 
@@ -247,6 +274,31 @@ export interface WhiteboxReview {
   risk: 'low' | 'medium' | 'high'
   findings: Array<{ type: string; explanation: string }>
   recommendation: string
+}
+
+export type ProofCandidateStatus = 'INVALID' | 'EXPLORATORY' | 'VERIFIED'
+export type ProofLossVerdict = 'invalid' | 'no-progress' | 'progress' | 'solved'
+
+export interface ProofLossReport {
+  schemaVersion: typeof RUN_SCHEMA_VERSION
+  pluginId: string
+  evaluatedAt: string
+  verdict: ProofLossVerdict
+  candidateStatus: ProofCandidateStatus
+  summary: string
+  ruleBased: {
+    buildPassed: boolean
+    lockedInputsMatch: boolean
+    theoremSignatureMatches: boolean
+    obligationsClosed: number
+    obligationsTotal: number
+    closedObligations: string[]
+    openObligations: string[]
+    forbiddenAxiomFindings: number
+    findings: ProofHygieneFinding[]
+  }
+  whitebox?: WhiteboxReview
+  metrics: Record<string, number | string | boolean>
 }
 
 export interface ProofRunSnapshot {
@@ -276,6 +328,7 @@ export interface ProofRunSnapshot {
   lanes: LaneEvidence[]
   parameterState: TextParameterState
   latestReflection?: ParameterUpdatePlan
+  latestOptimization?: OptimizationDecision
   finalReceipt?: ProofReceipt
   whiteboxReview?: WhiteboxReview
   stopReason?: string

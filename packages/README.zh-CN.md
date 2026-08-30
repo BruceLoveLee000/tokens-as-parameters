@@ -13,13 +13,16 @@ packages/
 │   └── telemetry/                      领域无关的 DSH 轨迹投影
 ├── formal/
 │   ├── proof-contracts/                Case、Receipt、Run 与信任契约
+│   ├── proof-agent/                    可替换 Prover Provider 注册中心
+│   ├── prover-code-agent/              官方 Code Agent Prover Provider
+│   ├── proof-loss/                     可替换 Loss Provider 注册中心
+│   ├── loss-lean-dual/                 Lean + 白盒 Loss Provider
 │   ├── proof-observer/                 持久化证明事件与快照
-│   ├── proof-roles/                    Formal Agent Definition 与 Prover/Reviewer 角色
 │   ├── proof-runtime/                  形式化证明 Epoch/Rollout 引擎
 │   ├── proof-verification/             Verifier Service 与 Provider 注册中心
 │   └── tool-proof-run/                 面向模型的运行控制工具
 ├── lean/
-│   └── verifier-lean/                  Lean Verifier 与声明级整合
+│   └── verifier-lean/                  确定性 Lean 规则 Checker
 ├── chips/                              预留的硬件领域边界
 └── bundle/
     └── formal-proof/                   只负责组装，不承载领域实现

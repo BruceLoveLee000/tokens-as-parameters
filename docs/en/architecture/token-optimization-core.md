@@ -14,8 +14,8 @@ flowchart TB
     Registry[Text parameter definitions]
     State[Versioned parameter state]
     Exposure[Context exposure snapshots]
-    Feedback[Evaluation and evidence access]
-    Contract[Atomic update contract]
+    Feedback[Loss reports and evidence access]
+    Contract[Atomic update and rollout-schedule contract]
     Optimizers[Optimizer registry]
   end
 
@@ -64,10 +64,10 @@ The analogy is useful as an interface guide, not as a claim of differentiability
 | tensor parameter | versioned `TextParameter` |
 | `requires_grad` | instance-level `requiresFeedback` |
 | forward pass | Agent rollout through tools and an environment |
-| loss/reward | external `EvaluationRecord` |
+| loss/reward | replaceable external `EvaluationRecord` / domain Loss plugin |
 | activation/trace | session events, artifacts, and state transitions |
 | gradient | semantic comparison inferred from evidence |
-| `Optimizer.step()` | validated atomic `ParameterUpdatePlan` |
+| `Optimizer.step()` | validated atomic `OptimizationDecision` |
 | checkpoint | parameter state, solution state, optimizer state, and provenance |
 
 The immutable user task is normally an input, not a trainable parameter. A domain Agent may register frozen text when provenance requires it, but observation alone does not make text trainable.
@@ -117,7 +117,7 @@ The Optimizer can inspect usage by parameter id and then page traces or inspect 
 
 ### Feedback and atomic update
 
-`ParameterUpdatePlan` contains the base state version, a semantic reflection, and replacements for any subset of feedback-enabled parameters. Omitted parameters remain byte-for-byte unchanged. The controller rejects stale versions, duplicate updates, unknown ids, and updates to frozen parameters before applying the whole plan atomically.
+`ParameterUpdatePlan` contains the base parameter-state version, a semantic reflection, and replacements for any subset of feedback-enabled parameters. Omitted parameters remain byte-for-byte unchanged. `OptimizationDecision` wraps that update together with one `RolloutDirective` per future lane. Each directive selects an eligible solution-state id and supplies a natural-language task. The controller rejects stale versions, duplicate updates, unknown ids, frozen parameters, missing lanes, and invalid solution parents before applying the decision.
 
 This is deliberately simpler than patches, edit scripts, per-token gradients, or implicit merge semantics. Those mechanisms require evidence before entering the Core API.
 
@@ -150,18 +150,18 @@ sequenceDiagram
   A-->>E: artifacts and terminal state
   E-->>R: structured evaluations
   R->>O: registry, summaries, and read-only evidence tools
-  O->>R: ParameterUpdatePlan(base=vN)
-  R->>R: validate freshness, ids, and frozen flags
+  O->>R: OptimizationDecision(update + next parents/tasks)
+  R->>R: validate parameters, lanes, and eligible state ids
   R->>S: atomically commit state vN+1
 ```
 
-The relative-reflection implementation deliberately produces a semantic update rather than forcing a scalar advantage. The consumer is another language-model Agent, so high-bandwidth textual comparisons may carry useful information that a single number cannot. Scalar and hybrid Optimizers can still implement the same contract later.
+The relative-reflection implementation deliberately produces a semantic update rather than forcing a scalar advantage. The consumer is another language-model Agent, so high-bandwidth textual comparisons may carry useful information that a single number cannot. It also chooses the next solution-state parent independently for every lane. Scalar and hybrid Optimizers can still implement the same contract later.
 
 ## Package boundaries
 
 | Package | Owns | Does not own |
 |---|---|---|
-| `core-optimization` | parameter, exposure, evaluation, update, and Optimizer registry contracts | domain parameter ids or Agent prompts |
+| `core-optimization` | parameter, exposure, evaluation, eligible-state, rollout-directive, update, and Optimizer registry contracts | domain parameter ids, Loss semantics, or Agent prompts |
 | `optimizer-relative-reflection` | autonomous evidence inspection and semantic update proposal | task acceptance or domain hints |
 | `core-state-git` | Git-backed insight and parameter-transition provenance | proof semantics |
 | `core-telemetry` | bounded DSH trace projection and exact token dimensions | training policy |
@@ -178,7 +178,7 @@ Implemented now:
 - exact context exposure snapshots;
 - structured evaluations and bounded evidence tools;
 - atomic subset updates with stale/frozen validation;
-- replaceable Optimizer providers and Git provenance.
+- replaceable Optimizer providers, validated per-lane parent/task scheduling, and Git provenance.
 
 Deferred until experiments justify them:
 

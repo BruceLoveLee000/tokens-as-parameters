@@ -1,9 +1,9 @@
 {
-  "name": "@tokens-as-parameters/proof-roles",
+  "name": "@tokens-as-parameters/loss-lean-dual",
   "version": "0.1.0",
-  "description": "Scoped prover and white-box reviewer roles for formal verification",
+  "description": "Composite Lean kernel and agentic white-box Loss providers",
   "publishConfig": { "access": "public" },
-  "repository": { "type": "git", "url": "git+https://github.com/BruceLoveLee000/tokens-as-parameters.git", "directory": "packages/formal/proof-roles" },
+  "repository": { "type": "git", "url": "git+https://github.com/BruceLoveLee000/tokens-as-parameters.git", "directory": "packages/formal/loss-lean-dual" },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -12,10 +12,8 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@tokens-as-parameters/core-telemetry": "0.1.0",
-    "@tokens-as-parameters/core-optimization": "0.1.0",
-    "@tokens-as-parameters/core-state-git": "0.1.0",
     "@tokens-as-parameters/proof-contracts": "0.1.0",
-    "@tokens-as-parameters/proof-verification": "0.1.0",
+    "@tokens-as-parameters/proof-loss": "0.1.0",
     "zod": "4.4.3"
   },
   "peerDependencies": {

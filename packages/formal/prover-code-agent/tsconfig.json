@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib", "tsBuildInfoFile": "../../../.build/prover-code-agent.tsbuildinfo" },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../../core/optimization" },
+    { "path": "../../core/state-git" },
+    { "path": "../../core/telemetry" },
+    { "path": "../proof-agent" },
+    { "path": "../proof-contracts" }
+  ]
+}

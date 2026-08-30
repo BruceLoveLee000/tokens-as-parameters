@@ -1,0 +1,10 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "lib", "tsBuildInfoFile": "../../../.build/loss-lean-dual.tsbuildinfo" },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../../core/telemetry" },
+    { "path": "../proof-contracts" },
+    { "path": "../proof-loss" }
+  ]
+}

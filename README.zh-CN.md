@@ -16,7 +16,7 @@ Tokens as Parameters 是一个实验性研究系统，用于验证：经过证�
 
 研究预览版。第一版有意限定为**仅支持实验模式**：只运行仓库内版本化的不可变 Case；每次调用都会物化新的 Run 专属 Git 工作区；不会修改 Case，也不会把结果自动合回 Case。针对用户指定工作区的生产模式推迟到 [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)。
 
-第一套 DSH 原生形式化证明系统已经重构为相互独立的 Core、Formal、Lean、Tool 与 Bundle Workspace Package，目标是 DSH `0.1.1-rc.2` 公开扩展接口。系统包含隔离的并行 Prover、Verifier 门控的 Git Checkpoint、可替换的 Token Optimizer、声明级语义合并、持久 Run 证据以及最终白盒审查。
+第一套 DSH 原生形式化证明系统已经重构为相互独立的 Core、Formal、Lean、Tool 与 Bundle Workspace Package，目标是 DSH `0.1.1-rc.2` 公开扩展接口。系统包含可替换的 Prover、Loss 与 Optimizer Plugin、隔离的并行搜索状态、逐 Rollout 的 Lean + 白盒反馈、Optimizer 选择的 Git 父状态以及持久 Run 证据。
 
 ## 核心研究问题
 
@@ -60,7 +60,7 @@ dsh web
 
 - 使用打包后的 Bundle 完整复跑已完成许可证确认的 FDIV R14 Checkpoint；
 - 增加面向未来 Reward 的上下文整合，而不是普通摘要；
-- 对单路、独立并行、自反思、组间反思、持久 Insight、上下文整合执行等预算消融实验。
+- 对 Prover、Loss、Optimizer、父状态选择、反思和持久 Insight 执行等预算消融实验。
 - 仅在实验链路稳定后增加用户工作区生产模式（[Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)）。
 
 ## 仓库目录

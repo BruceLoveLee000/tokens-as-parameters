@@ -12,14 +12,23 @@
     - id: tap-proof-observer
       name: '@tokens-as-parameters/proof-observer'
 
+    - id: tap-proof-agent
+      name: '@tokens-as-parameters/proof-agent'
+
+    - id: tap-prover-code-agent
+      name: '@tokens-as-parameters/prover-code-agent'
+
+    - id: tap-proof-loss
+      name: '@tokens-as-parameters/proof-loss'
+
+    - id: tap-loss-lean-dual
+      name: '@tokens-as-parameters/loss-lean-dual'
+
     - id: tap-proof-verification
       name: '@tokens-as-parameters/proof-verification'
 
     - id: tap-verifier-lean
       name: '@tokens-as-parameters/verifier-lean'
-
-    - id: tap-proof-roles
-      name: '@tokens-as-parameters/proof-roles'
 
     - id: tap-proof-runtime
       name: '@tokens-as-parameters/proof-runtime'

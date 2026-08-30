@@ -15,8 +15,9 @@
     "@tokens-as-parameters/core-state-git": "0.1.0",
     "@tokens-as-parameters/core-telemetry": "0.1.0",
     "@tokens-as-parameters/proof-contracts": "0.1.0",
+    "@tokens-as-parameters/proof-agent": "0.1.0",
+    "@tokens-as-parameters/proof-loss": "0.1.0",
     "@tokens-as-parameters/proof-observer": "0.1.0",
-    "@tokens-as-parameters/proof-roles": "0.1.0",
     "@tokens-as-parameters/proof-verification": "0.1.0"
   },
   "peerDependencies": {

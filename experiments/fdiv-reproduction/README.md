@@ -8,7 +8,7 @@ English | [简体中文](README.zh-CN.md)
 
 ## Hypothesis
 
-Under a fixed model and inference budget, two independent proof trajectories plus agentic comparative reflection and verifier-gated semantic consolidation make more trusted progress than a single trajectory or two independent trajectories without information exchange.
+Under a fixed model and inference budget, two proof rollouts plus per-rollout dual Loss and an agentic Optimizer that selects the next textual parameters, Git parents, and tasks make more trusted progress than single or non-communicating rollouts.
 
 ## Frozen inputs
 
@@ -19,21 +19,22 @@ Before a run, record in an experiment manifest:
 - expected claim scope (`lean-model-vs-spec` for the current checkpoint);
 - Lean/Lake toolchain, DSH version, Bundle commit, model/provider route;
 - every external proof repository (including FloatSpec), its exact commit, and clean-worktree verification;
-- rollout count, parallelism, per-request output cap, per-lane cumulative budget, total budget, wall-time limit, reflection settings, and white-box-review setting.
+- exact Prover/Loss/Optimizer ids, rollout count, parallelism, per-request output cap, Prover/Judge/Reflector step budgets, total cost/token guard, wall-time limit, and feedback-enabled parameters.
 
 Do not mutate the benchmark to make the plugin load. If its historical manifest differs, add a new versioned `case.json` adapter commit while preserving the original theorem and locked files.
 
-The adapter is control-plane metadata, not a new proof input: it names the editable proof file, frozen hashes, target obligations, checker command, allowed axioms, and pinned external repositories. The Runtime cannot safely infer these experiment controls from Model/Spec/RTL source files alone.
+The adapter is control-plane metadata, not a new proof input: it names the initial proof surface, frozen hashes, target obligations, checker command, allowed axioms, and pinned external repositories. Agents may add proof-side sources, but cannot modify locked inputs or the theorem signature.
 
 The first-release Runtime does not accept an external checkout path. After provenance and licensing are complete, commit the adapted Case under `benchmarks/`, verify that `chip_proof_cases` lists its exact id, and start every condition with `/chip_proof <case-id>`. Each invocation materializes a fresh Run baseline, so Runs cannot inherit prior proof state.
 
 ## Minimum run matrix
 
-| Condition | Rollouts | Cross-lane reflection | Persistent insight | Semantic consolidation |
-|---|---:|---:|---:|---:|
-| Single | 1 | no | yes | no-op |
-| Independent | 2 | no | yes | checker-gated only |
-| Group relative | 2 | yes | yes | checker-gated |
+| Condition | Prover | Loss | Optimizer | Rollouts | Next-parent policy |
+|---|---|---|---|---:|---|
+| Single | `formal-code-agent` | `lean-dual-check` | reflection disabled | 1 | own eligible state |
+| Independent | `formal-code-agent` | `lean-dual-check` | reflection disabled | 2 | each lane continues independently |
+| Group relative | `formal-code-agent` | `lean-dual-check` | `relative-reflection` | 2 | Optimizer-selected parent/task per lane |
+| Rule-only Loss | `formal-code-agent` | `lean-rule-only` | `relative-reflection` | 2 | Optimizer-selected parent/task per lane |
 
 Use equal total-token and wall-time ceilings for comparisons. Record actual input, output, cache-read, and cache-write tokens separately when DSH exposes them; do not compare only configured maxima.
 
@@ -46,7 +47,7 @@ A reproduction is complete only when the archived evidence contains:
 3. the final Git commit and proof source;
 4. successful controller-owned `lake build` receipt;
 5. top theorem `#print axioms` receipt with no forbidden dependencies;
-6. white-box review result and all findings;
+6. per-rollout structured Loss reports, white-box findings where enabled, and Optimizer decisions;
 7. theorem-by-theorem closure table, elapsed time, and token accounting;
 8. an explicit statement that this proves Lean Model ↔ Lean Spec only unless RTL fidelity is separately certified.
 

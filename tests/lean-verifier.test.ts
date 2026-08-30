@@ -15,7 +15,6 @@ import {
   proofHygiene,
   stripLeanComments,
   theoremSignatureSha256,
-  transplantDeclarations,
 } from '@tokens-as-parameters/verifier-lean'
 
 class FakeRunner implements CommandRunner {
@@ -148,16 +147,17 @@ test('forbidden obligation dependencies do not count as trusted progress', async
   assert.deepEqual(receipt.axiomAudit?.forbidden, ['sorryAx'])
 })
 
-test('candidate changes outside the declared editable surface are rejected', async () => {
+test('candidate may add proof-side Lean sources outside the legacy editable hint', async () => {
   const { root, resolved } = await fixture()
+  await writeFile(join(root, 'formal', 'Injected.lean'), 'theorem additional_helper : True := by trivial\n', 'utf8')
   const runner = new FakeRunner(
     0,
     "'helper' does not depend on any axioms\n'top' does not depend on any axioms",
     'formal/Injected.lean\n',
   )
   const receipt = await new LeanVerifier(runner).check(resolved, root, 0, undefined, 'deadbeef')
-  assert.equal(receipt.finalAccepted, false)
-  assert.equal(receipt.findings.some(finding => finding.kind === 'unauthorized-change'), true)
+  assert.equal(receipt.finalAccepted, true)
+  assert.equal(receipt.findings.some(finding => finding.kind === 'unauthorized-change'), false)
 })
 
 test('verifier removes prior Lean build outputs before checking trust', async () => {
@@ -206,7 +206,7 @@ test('Lean run cache reuses dependencies while keeping worktrees isolated', asyn
   assert.equal(await readFile(sourcePackage, 'utf8'), 'source dependency\n')
 })
 
-test('checker-clean helper-only progress is checkpointable and semantically transplantable', async () => {
+test('checker-clean helper-only evidence is recorded without automatic branch transplantation', async () => {
   const { root, resolved } = await fixture()
   const baselineProof = [
     'import Spec',
@@ -235,8 +235,5 @@ test('checker-clean helper-only progress is checkpointable and semantically tran
   assert.equal(receipt.checkpointable, true)
   assert.deepEqual(receipt.checkpointDeclarations, ['bridge'])
 
-  const merged = transplantDeclarations(baselineProof, candidateProof, receipt.checkpointDeclarations)
-  assert.equal(merged.includes('theorem bridge : True := by\n  exact helper'), true)
-  assert.equal(merged.indexOf('theorem bridge'), merged.lastIndexOf('theorem bridge'))
-  assert.equal(merged.indexOf('theorem bridge') < merged.indexOf('theorem top'), true)
+  assert.equal(candidateProof.includes('theorem bridge : True := by\n  exact helper'), true)
 })

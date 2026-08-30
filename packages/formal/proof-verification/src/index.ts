@@ -28,7 +28,6 @@ export interface ProofVerifier {
     signal?: AbortSignal,
     baselineCommit?: string,
   ): Promise<ProofReceipt>
-  consolidate(baseSource: string, candidateSource: string, acceptedUnits: readonly string[]): string
 }
 
 declare module '@deepseek-ai/cordis' {
