@@ -16,7 +16,7 @@ Tokens as Parameters 是一个实验性研究系统，用于验证：经过证�
 
 研究预览版。第一版有意限定为**仅支持实验模式**：只运行仓库内版本化的不可变 Case；每次调用都会物化新的 Run 专属 Git 工作区；不会修改 Case，也不会把结果自动合回 Case。针对用户指定工作区的生产模式推迟到 [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)。
 
-第一套 DSH 原生形式化证明系统已经重构为相互独立的 Core、Formal、Lean、Tool 与 Bundle Workspace Package，目标是 DSH `0.1.1-rc.2` 公开扩展接口。系统包含可替换的 Prover、Loss 与 Optimizer Plugin、隔离的并行搜索状态、逐 Rollout 的 Lean + 白盒反馈、Optimizer 选择的 Git 父状态以及持久 Run 证据。
+第一套 DSH 原生形式化证明系统已经重构为相互独立的 Core、Formal、Lean、Tool 与 Bundle Workspace Package，目标是 DSH `0.1.1-rc.2` 公开扩展接口。领域无关的 Core Training Runtime 驱动可替换的 Prover、Loss 与 Optimizer Plugin；Formal Adapter 增加隔离搜索状态、绑定 Commit 的逐 Rollout Lean + 白盒反馈、Optimizer 选择的 Git 父状态以及持久 Run 证据。
 
 ## 核心研究问题
 
@@ -26,6 +26,7 @@ Tokens as Parameters 是一个实验性研究系统，用于验证：经过证�
 
 - 基于 DSH 官方 Code Agent 和 Agent Loop 的原生编排；
 - `packages/core/optimization` 内核：领域 Agent 注册版本化文本参数，逐实例选择是否接受反馈，记录精确上下文暴露，并接收可替换 Optimizer 的原子语义更新；
+- `packages/core/training-runtime` 循环：组合 Rollout、Evaluation、Optimization、状态应用与有保证的 Epoch 清理，不导入 Formal 或 Lean 语义；
 - 多路隔离推理轨迹与持久 Run 身份；
 - Verifier 门控的受信进度和 reward hacking 防御；
 - 作为方向性文本更新的跨轨迹反思；

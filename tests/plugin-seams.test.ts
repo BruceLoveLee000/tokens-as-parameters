@@ -11,7 +11,7 @@ import {
   RUN_SCHEMA_VERSION,
   type ProofReceipt,
 } from '@tokens-as-parameters/proof-contracts'
-import { evaluateLeanProofLoss } from '@tokens-as-parameters/loss-lean-dual'
+import { LeanDualCheckLoss, evaluateLeanProofLoss } from '@tokens-as-parameters/loss-lean-dual'
 
 const usage = {
   inputTokens: 0,
@@ -89,6 +89,7 @@ function receipt(overrides: Partial<ProofReceipt> = {}): ProofReceipt {
     caseId: 'test-case',
     claimScope: 'lean-model-vs-spec',
     worktree: '/tmp/test-worktree',
+    candidateCommit: 'candidate-1',
     build: {
       argv: ['lake', 'build'],
       cwd: '/tmp/test-worktree',
@@ -117,6 +118,7 @@ function receipt(overrides: Partial<ProofReceipt> = {}): ProofReceipt {
 
 test('dual Loss requires white-box approval on every rollout and preserves semantic progress', () => {
   const missingJudge = evaluateLeanProofLoss('lean-dual-check', {
+    candidateCommit: 'candidate-1',
     receipt: receipt(),
     baselineClosed: 0,
   }, true)
@@ -124,6 +126,7 @@ test('dual Loss requires white-box approval on every rollout and preserves seman
   assert.equal(missingJudge.candidateStatus, 'INVALID')
 
   const progress = evaluateLeanProofLoss('lean-dual-check', {
+    candidateCommit: 'candidate-1',
     receipt: receipt(),
     baselineClosed: 0,
     whitebox: {
@@ -137,6 +140,7 @@ test('dual Loss requires white-box approval on every rollout and preserves seman
   assert.equal(progress.candidateStatus, 'VERIFIED')
 
   const solved = evaluateLeanProofLoss('lean-dual-check', {
+    candidateCommit: 'candidate-1',
     receipt: receipt({
       obligationsClosed: 2,
       closedObligations: ['helper', 'top'],
@@ -152,4 +156,49 @@ test('dual Loss requires white-box approval on every rollout and preserves seman
     },
   }, true)
   assert.equal(solved.verdict, 'solved')
+
+  const staleReceipt = evaluateLeanProofLoss('lean-dual-check', {
+    candidateCommit: 'candidate-2',
+    receipt: receipt(),
+    baselineClosed: 0,
+    whitebox: {
+      approved: true,
+      risk: 'low',
+      findings: [],
+      recommendation: 'Accept.',
+    },
+  }, true)
+  assert.equal(staleReceipt.verdict, 'invalid')
+  assert.equal(staleReceipt.metrics.candidateMatches, false)
+})
+
+test('dual Loss owns verifier then white-box evaluation for one immutable candidate', async () => {
+  const order: string[] = []
+  const evaluation = await new LeanDualCheckLoss().evaluate({
+    resolvedCase: {} as never,
+    worktree: '/tmp/test-worktree',
+    candidateCommit: 'candidate-1',
+    baseCommit: 'baseline-1',
+    baselineClosed: 0,
+    signal: new AbortController().signal,
+    verifier: {
+      id: 'test-verifier',
+      async check() {
+        order.push('verify')
+        return receipt()
+      },
+    },
+    async review() {
+      order.push('review')
+      return {
+        approved: true,
+        risk: 'low',
+        findings: [],
+        recommendation: 'Continue.',
+      }
+    },
+  })
+  assert.deepEqual(order, ['verify', 'review'])
+  assert.equal(evaluation.loss.verdict, 'progress')
+  assert.equal(evaluation.loss.candidateCommit, 'candidate-1')
 })

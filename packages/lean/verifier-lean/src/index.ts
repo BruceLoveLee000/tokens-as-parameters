@@ -264,6 +264,7 @@ export class LeanVerifier implements ProofVerifier {
     baselineClosed = 0,
     signal?: AbortSignal,
     baselineCommit?: string,
+    candidateCommit?: string,
   ): Promise<ProofReceipt> {
     const manifest = resolvedCase.manifest
     const leanWorkingDirectory = resolveInside(worktree, manifest.lean.workingDirectory)
@@ -278,6 +279,28 @@ export class LeanVerifier implements ProofVerifier {
       ? proofSource
       : await readFile(theoremPath, 'utf8')
     const findings = proofHygiene(proofSource, manifest.lean.proofFile)
+    if (candidateCommit !== undefined) {
+      const head = await this.runner.run({
+        argv: ['git', 'rev-parse', 'HEAD'],
+        cwd: worktree,
+        timeoutMs: 60_000,
+        maxOutputBytes: 256_000,
+        ...(signal === undefined ? {} : { signal }),
+      })
+      const changed = await this.changedPathsSince(worktree, candidateCommit, signal)
+      const dirtySources = changed.filter(path => /\.(?:lean|md|txt|json|toml|ya?ml)$/i.test(path))
+      if (
+        head.exitCode !== 0
+        || head.signal !== null
+        || head.stdout.trim() !== candidateCommit
+        || dirtySources.length > 0
+      ) {
+        findings.push({
+          kind: 'candidate-state',
+          message: `checker input is not the immutable candidate commit ${candidateCommit}${dirtySources.length === 0 ? '' : `; dirty sources: ${dirtySources.join(', ')}`}`,
+        })
+      }
+    }
     const mismatches = await verifyLockedInputs(worktree, resolvedCase.lockedInputs)
     for (const mismatch of mismatches) {
       findings.push({
@@ -341,7 +364,7 @@ export class LeanVerifier implements ProofVerifier {
       && signatureMatches
       && findings.every(finding => finding.kind === 'build'
         ? false
-        : !['admit', 'axiom', 'unsafe', 'signature', 'locked-input'].includes(finding.kind))
+        : !['admit', 'axiom', 'unsafe', 'signature', 'locked-input', 'candidate-state'].includes(finding.kind))
     let obligationAxiomAudit: ProofReceipt['obligationAxiomAudit']
     let checkpointAxiomAudit: ProofReceipt['checkpointAxiomAudit']
     let axiomAudit: ProofReceipt['axiomAudit']
@@ -413,6 +436,7 @@ export class LeanVerifier implements ProofVerifier {
       caseId: manifest.caseId,
       claimScope: manifest.claimScope,
       worktree,
+      ...(candidateCommit === undefined ? {} : { candidateCommit }),
       build,
       lockedInputsMatch: mismatches.length === 0,
       theoremSignatureMatches: signatureMatches,

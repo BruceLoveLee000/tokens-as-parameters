@@ -14,6 +14,7 @@
   "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
   "dependencies": {
     "@tokens-as-parameters/core-optimization": "0.1.0",
+    "@tokens-as-parameters/core-training-runtime": "0.1.0",
     "@tokens-as-parameters/optimizer-relative-reflection": "0.1.0",
     "@tokens-as-parameters/loss-lean-dual": "0.1.0",
     "@tokens-as-parameters/proof-agent": "0.1.0",

@@ -13,6 +13,8 @@ import {
 } from '@tokens-as-parameters/proof-contracts'
 import type {
   ProofLossInput,
+  ProofLossEvaluation,
+  ProofLossEvaluationInput,
   ProofLossJudgeCapture,
   ProofLossJudgeOptions,
   ProofLossProvider,
@@ -118,6 +120,7 @@ const FATAL_FINDINGS = new Set([
   'signature',
   'locked-input',
   'unauthorized-change',
+  'candidate-state',
   'axiom-audit',
 ])
 
@@ -127,8 +130,10 @@ export function evaluateLeanProofLoss(
   requiresJudge: boolean,
 ): ProofLossReport {
   const receipt = input.receipt
+  const candidateMatches = receipt.candidateCommit === input.candidateCommit
   const buildPassed = receipt.build.exitCode === 0 && receipt.build.signal === null
-  const structuralViolation = !receipt.lockedInputsMatch
+  const structuralViolation = !candidateMatches
+    || !receipt.lockedInputsMatch
     || !receipt.theoremSignatureMatches
     || receipt.findings.some(finding => FATAL_FINDINGS.has(finding.kind))
   const judgeRejected = requiresJudge && input.whitebox?.approved !== true
@@ -152,6 +157,7 @@ export function evaluateLeanProofLoss(
   return {
     schemaVersion: RUN_SCHEMA_VERSION,
     pluginId,
+    candidateCommit: input.candidateCommit,
     evaluatedAt: new Date().toISOString(),
     verdict,
     candidateStatus,
@@ -173,25 +179,64 @@ export function evaluateLeanProofLoss(
       obligationsTotal: receipt.obligationsTotal,
       buildPassed,
       finalAccepted: receipt.finalAccepted,
+      candidateMatches,
       whiteboxApproved: input.whitebox?.approved ?? !requiresJudge,
     },
   }
 }
 
-class LeanDualCheckLoss implements ProofLossProvider {
+export class LeanDualCheckLoss implements ProofLossProvider {
   readonly id = 'lean-dual-check'
   readonly requiresJudge = true
   installJudge = installJudge
-  evaluate(input: ProofLossInput): ProofLossReport {
+  score(input: ProofLossInput): ProofLossReport {
     return evaluateLeanProofLoss(this.id, input, true)
+  }
+  async evaluate(input: ProofLossEvaluationInput): Promise<ProofLossEvaluation> {
+    const receipt = await input.verifier.check(
+      input.resolvedCase,
+      input.worktree,
+      input.baselineClosed,
+      input.signal,
+      input.baseCommit,
+      input.candidateCommit,
+    )
+    const whitebox = await input.review(receipt)
+    return {
+      receipt,
+      loss: this.score({
+        candidateCommit: input.candidateCommit,
+        receipt,
+        baselineClosed: input.baselineClosed,
+        ...(whitebox === undefined ? {} : { whitebox }),
+      }),
+    }
   }
 }
 
-class LeanRuleOnlyLoss implements ProofLossProvider {
+export class LeanRuleOnlyLoss implements ProofLossProvider {
   readonly id = 'lean-rule-only'
   readonly requiresJudge = false
-  evaluate(input: ProofLossInput): ProofLossReport {
+  score(input: ProofLossInput): ProofLossReport {
     return evaluateLeanProofLoss(this.id, input, false)
+  }
+  async evaluate(input: ProofLossEvaluationInput): Promise<ProofLossEvaluation> {
+    const receipt = await input.verifier.check(
+      input.resolvedCase,
+      input.worktree,
+      input.baselineClosed,
+      input.signal,
+      input.baseCommit,
+      input.candidateCommit,
+    )
+    return {
+      receipt,
+      loss: this.score({
+        candidateCommit: input.candidateCommit,
+        receipt,
+        baselineClosed: input.baselineClosed,
+      }),
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "@tokens-as-parameters/proof-runtime",
   "version": "0.1.0",
-  "description": "Verifier-guided Epoch and Rollout engine for long-horizon formal proof",
+  "description": "Formal Case, DSH Session, Git state, and result adapter over the Core Training Runtime",
   "publishConfig": { "access": "public" },
   "repository": { "type": "git", "url": "git+https://github.com/BruceLoveLee000/tokens-as-parameters.git", "directory": "packages/formal/proof-runtime" },
   "type": "module",
@@ -12,6 +12,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@tokens-as-parameters/core-optimization": "0.1.0",
+    "@tokens-as-parameters/core-training-runtime": "0.1.0",
     "@tokens-as-parameters/core-state-git": "0.1.0",
     "@tokens-as-parameters/core-telemetry": "0.1.0",
     "@tokens-as-parameters/proof-contracts": "0.1.0",

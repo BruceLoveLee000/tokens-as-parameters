@@ -16,7 +16,8 @@ The comparison concerns mechanisms that contributed to the result. It does not c
 | independent rollout Sessions and Git worktrees | retained | every lane gets a stable session id and detached worktree |
 | continuation after per-request max-token termination | retained | the same Session continues while model-step depth remains |
 | long search depth, total-token, and wall-time budgets | improved | model steps are primary depth; cache-read volume no longer prematurely ends a lane |
-| controller-owned Lean build and locked-input/signature/hygiene checks | retained | model claims cannot advance progress |
+| domain-neutral training loop | improved | Core now owns typed Rollout/Evaluation/Optimization/Epoch control without importing Formal or Lean |
+| Loss-owned Lean build and locked-input/signature/hygiene checks | retained | model claims cannot advance progress; Receipt and Loss bind the exact Candidate Commit |
 | per-obligation axiom audit and all-obligation final gate | retained | a declaration depending on forbidden axioms cannot inflate trusted progress |
 | read-only white-box reward-hacking review | improved | now part of replaceable Loss after every rollout, so findings feed the next optimization step |
 | cross-lane solution-state integration | redesigned | no regex transplantation; Optimizer selects parents and semantic integration is an ordinary Prover task followed by Loss |
@@ -59,6 +60,8 @@ The remaining `DISPROVED`, arbitrary-definition Capsule, and proof-interface reb
 - contract tests for parameter definition, instance feedback selection, frozen/stale rejection, exact exposure, atomic replacement, and Formal-owned parameter ids;
 - Git DAG tests for reflection provenance and parameter-state persistence;
 - Lean parsing, all-changed-source hygiene, obligation, axiom, helper-state, plugin-seam, package-boundary, and step/token telemetry tests;
+- Core Training Runtime ordering, state transition, and failure-cleanup tests;
+- Candidate Commit binding and stale-Receipt rejection tests;
 - package dependency rule that Core does not depend on Formal, Lean, Chips, or Bundle packages.
 
 ## Reproduction gate

@@ -16,7 +16,8 @@
 | 独立 Rollout Session 与 Git Worktree | 保留 | 每路获得稳定 Session ID 和 Detached Worktree |
 | 单次 Max-token 后继续运行 | 保留 | 模型 Step 深度未耗尽时在同一 Session 续跑 |
 | 长搜索深度、总 Token 与总时长预算 | 改进 | 模型 Step 是主要深度；Cache Read 不再提前结束 Lane |
-| Controller 自有 Lean Build 与锁定输入/Signature/Hygiene 检查 | 保留 | 模型声称不能推进进度 |
+| 领域无关 Training Loop | 改进 | Core 负责带类型的 Rollout/Evaluation/Optimization/Epoch 控制，不导入 Formal 或 Lean |
+| Loss 自有 Lean Build 与锁定输入/Signature/Hygiene 检查 | 保留 | 模型声称不能推进进度；Receipt 与 Loss 绑定精确 Candidate Commit |
 | 逐 Obligation Axiom Audit 与全量最终门 | 保留 | 依赖禁止 Axiom 的声明不能虚增受信进度 |
 | 只读白盒 Reward-hacking 审查 | 改进 | 成为每个 Rollout 后的可替换 Loss，Finding 会进入下一优化 Step |
 | 跨 Lane Solution-State 整合 | 重设计 | 不做正则移植；Optimizer 选父状态，语义整合由普通 Prover 任务完成并经过 Loss |
@@ -59,6 +60,8 @@ Helper-only 缺口不再依靠合并器处理：Verifier 发现并执行 Axiom A
 - 参数定义、实例级反馈选择、冻结/过期拒绝、精确暴露、原子替换和 Formal 自有参数 ID 契约测试；
 - Reflection 来源 DAG 与参数状态持久化 Git 测试；
 - Lean Parsing、全部变更源码 Hygiene、Obligation、Axiom、Helper State、Plugin 接缝、Package 边界以及 Step/Token Telemetry 测试；
+- Core Training Runtime 顺序、状态转移与失败清理测试；
+- Candidate Commit 绑定与过期 Receipt 拒绝测试；
 - Core 不依赖 Formal、Lean、Chips 或 Bundle 的依赖规则。
 
 ## 复现门槛

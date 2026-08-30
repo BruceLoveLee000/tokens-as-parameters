@@ -27,6 +27,7 @@ export interface ProofVerifier {
     baselineClosed?: number,
     signal?: AbortSignal,
     baselineCommit?: string,
+    candidateCommit?: string,
   ): Promise<ProofReceipt>
 }
 

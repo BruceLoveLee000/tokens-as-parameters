@@ -1,0 +1,13 @@
+{
+  "name": "@tokens-as-parameters/core-training-runtime",
+  "version": "0.1.0",
+  "description": "Domain-neutral rollout, evaluation, and optimization training loop",
+  "publishConfig": { "access": "public" },
+  "repository": { "type": "git", "url": "git+https://github.com/BruceLoveLee000/tokens-as-parameters.git", "directory": "packages/core/training-runtime" },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" }, "./package.json": "./package.json" },
+  "files": ["lib"],
+  "license": "Apache-2.0"
+}

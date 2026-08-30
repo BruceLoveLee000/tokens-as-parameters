@@ -4,14 +4,15 @@
 
 ## 系统边界与 Plugin 接缝
 
-形式化证明是 Tokens as Parameters 的第一个领域应用。Bundle 组装三个可独立替换的研究 Plugin：负责前向搜索的 **Prover Agent**、负责评估每个结果状态的 **Loss**，以及负责语义反馈、文本参数更新和下一父状态调度的 **Optimizer**。`proof-runtime` 只负责 Run/Epoch 生命周期、DSH Session、Git Worktree、预算、持久化与停止。
+形式化证明是 Tokens as Parameters 的第一个领域应用。Bundle 组装三个可独立替换的研究 Plugin：负责前向搜索的 **Prover Agent**、负责评估每个结果状态的 **Loss**，以及负责语义反馈、文本参数更新和下一父状态调度的 **Optimizer**。`core-training-runtime` 负责无策略的 Epoch 循环；`proof-runtime` 是负责 Case、DSH Session、Git Worktree、预算、持久化与证明结果投影的 Formal Adapter。
 
 第一版仍只支持仓库不可变 Case 上的实验模式。任意用户工作区由 [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4) 跟踪。
 
 ```mermaid
 flowchart TB
-  User[用户 / 官方 DSH Web] --> Runtime[proof-runtime Controller]
-  Cases[已提交的不可变 Case] --> Runtime
+  User[用户 / 官方 DSH Web] --> Adapter[proof-runtime Formal Adapter]
+  Cases[已提交的不可变 Case] --> Adapter
+  Adapter --> Runtime[core-training-runtime]
   subgraph Prover[Prover Agent 接缝]
     AgentRegistry[proof-agent Registry]
     CodeAgent[prover-code-agent]
@@ -31,8 +32,8 @@ flowchart TB
   Dual --> Lean
   Dual --> Judge
   Runtime --> Optimization --> Reflection
-  Runtime --> Git[Git Solution-State 图]
-  Runtime --> Observer[run.json / events.jsonl / DSH Session]
+  Adapter --> Git[Git Solution-State 图]
+  Adapter --> Observer[run.json / events.jsonl / DSH Session]
 ```
 
 消融实验可以独立替换 `prover`、`loss` 或 `optimizer`，同时固定 Case、模型、预算及其他 Plugin。Bundle 继续复用官方 DSH Code Agent、Agent Loop、原生工具、上下文压缩、凭据、Token 计量、Session 持久化和轨迹 UI。
@@ -55,9 +56,9 @@ flowchart TB
 
 这张表就是当前实验的模型定义。Core 只校验和版本化已注册参数。未来数学 Prover 或 Code Agent Trainer 可以注册完全不同的 ID 和描述，无需修改 Core。
 
-三个参数 Section 的上下文位置固定。每个 Prover Session 开始前，Runtime 都记录包含精确 Revision 的上下文快照。Reflector 因此可以查询“这个参数版本在哪里被使用、Checker 看到了什么结果”，而不是从模型文字中猜归因。
+三个参数 Section 的上下文位置固定。每个 Prover Session 开始前，Formal Adapter 都记录包含精确 Revision 的上下文快照。Reflector 因此可以查询“这个参数版本在哪里被使用、Checker 看到了什么结果”，而不是从模型文字中猜归因。
 
-Runtime 通过 DSH `agentPresets.composeFrom` 让 Prover 和白盒 Judge 复用宿主 Agent 的 Preset Generation。Prover 使用原生 `bash/read/write/edit/glob/grep/skill`，Judge 使用只读子集；外层生命周期工具不会进入它们的可调用面。Prover 可以创建或重构证明侧 Lean 文件；`editableFiles` 只是起始提示，锁定 Hash 与定理 Signature 才定义不可变边界。
+Formal Adapter 通过 DSH `agentPresets.composeFrom` 让 Prover 和白盒 Judge 复用宿主 Agent 的 Preset Generation。Prover 使用原生 `bash/read/write/edit/glob/grep/skill`，Judge 使用只读子集；外层生命周期工具不会进入它们的可调用面。Prover 可以创建或重构证明侧 Lean 文件；`editableFiles` 只是起始提示，锁定 Hash 与定理 Signature 才定义不可变边界。
 
 ## Run 与 Epoch 执行流
 
@@ -66,7 +67,8 @@ Runtime 通过 DSH `agentPresets.composeFrom` 让 Prover 和白盒 Judge 复用�
 ```mermaid
 sequenceDiagram
   participant U as 用户
-  participant C as Proof Controller
+  participant C as Formal Adapter
+  participant T as Core Training Runtime
   participant P as 并行 Prover
   participant L as Loss Plugin
   participant O as Optimizer Agent
@@ -75,19 +77,20 @@ sequenceDiagram
   U->>C: 启动已注册 Case id、预算与 Rollout 数
   C->>G: 校验干净 Source Commit；复制 Case；初始化 Run Git Baseline
   C->>L: 冻结 Baseline 预检查；捕获依赖缓存
+  C->>T: 配置带类型的 Formal Hook 与初始状态
   loop 直到证明成功或终止预算
-    C->>P: 参数状态 vN + Optimizer 选择的父状态/任务 + 隔离 Worktree
+    T->>P: 参数状态 vN + Optimizer 选择的父状态/任务 + 隔离 Worktree
     P->>P: 搜索、调用工具、记录 Insight，并在单次 max-token 后续跑
-    P-->>L: Candidate Source State
-    L->>L: Lean 规则检查 + 白盒 Judge
-    L-->>C: 结构化 ProofLossReport
-    C->>G: 提交安全证明源码状态与 Loss 来源
-    C->>O: 参数 + Loss + 可用状态 + 证据工具
+    P->>G: 提交不可变 Candidate Source State
+    G-->>L: Candidate Commit
+    L->>L: 在该 Commit 上执行 Lean 规则检查 + 白盒 Judge
+    L-->>T: 绑定 Commit 的 ProofReceipt + ProofLossReport
+    T->>O: 参数 + Loss + 可用状态 + 证据工具
     O->>O: 自主检查 Trace、文件、Commit 与 Diff
-    O-->>C: OptimizationDecision（更新 + 下一父状态/任务）
-    C->>G: 参数状态 vN+1 + 反思决策节点
+    O-->>T: OptimizationDecision（更新 + 下一父状态/任务）
+    T->>G: 参数状态 vN+1 + 反思决策节点
   end
-  C->>L: 要求 solved Loss 与最终 Lean 重新检查
+  T->>C: 在 solved 且 Commit 匹配的 Loss 上结束
   C->>G: 持久化最终 Receipt 与 Loss Report
 ```
 
@@ -109,7 +112,7 @@ Reflector 是多 Step Agent。默认上下文包含参数注册表、精确暴�
 
 它提交一个 `OptimizationDecision`：任意一组开放反馈参数的替换，以及每条下一轮 Lane 唯一的合法父状态/任务。省略参数即保持。Controller 原子校验参数版本、Lane 完整性和状态资格。达到 Step 边界后检查工具被移除，只保留 `submit_reflection`；第一次 Schema 错误获得可操作反馈，第二次错误回退为中性决策。
 
-`record_insight(summary, insight)` 让 Prover 主动选择高信息密度的认知/证据状态转移。Runtime 写入 Insight，并提交所有安全的已变更证明源码，而不再依赖 `editableFiles` 白名单。反思节点保存参数更新与下一轮调度；Git Parent 记录所消费状态，但不伪装成证明树已经合并。
+`record_insight(summary, insight)` 让 Prover 主动选择高信息密度的认知/证据状态转移。Formal Adapter 写入 Insight，并提交所有安全的已变更证明源码，而不再依赖 `editableFiles` 白名单。反思节点保存参数更新与下一轮调度；Git Parent 记录所消费状态，但不伪装成证明树已经合并。
 
 ## 信任边界
 
@@ -122,11 +125,11 @@ Reflector 是多 Step Agent。默认上下文包含参数注册表、精确暴�
 5. 配置的 Lean Build 成功；
 6. 每个计数 Obligation 都有符合白名单的 `#print axioms` 结果；
 7. 双重 Loss 的白盒审查没有发现语义弱化或 Reward Hacking；
-8. 最终验收关闭全部 Obligation，并通过一次新的 Lean 重新检查。
+8. 最终验收关闭全部 Obligation，且 Receipt 与 Loss 都标识同一个不可变 Candidate Commit。
 
 每次信任检查前，Verifier 都会删除该 Lane 先前的 `.lake/build` 与 `.lake/config` 产物，并从授权源码重新构建。因此，编译器生成状态既不会被误判成越权源码修改，也不能成为模型可复用的证明作弊产物。
 
-默认 Loss 在每个 Rollout 后执行白盒审查，因此否决会立即成为 Optimizer 的负反馈，而不是最终阶段才出现。Helper-only 状态可以保持 Verified 并被后续选择，但不会被误标成 Obligation 正向收益；只有经过新一轮 Controller 复查的真实 Obligation 增量才推进可信计数。
+默认 Loss 在每个 Rollout 后执行 Lean 与白盒审查，因此否决会立即成为 Optimizer 的负反馈，而不是最终阶段才出现。Helper-only 状态可以保持 Verified 并被后续选择，但不会被误标成 Obligation 正向收益；只有 Commit 匹配的双重 Loss Obligation 增益才推进可信计数，Runtime 不会在 Evaluation 后重复执行 Lean Build。
 
 Claim Scope 必须显式。`lean-model-vs-spec` 在缺少独立版本化 RTL-to-Lean 证书或 Adapter 时，不代表 RTL Fidelity。
 
@@ -135,11 +138,12 @@ Claim Scope 必须显式。`lean-model-vs-spec` 在缺少独立版本化 RTL-to-
 | Package/Plugin | 职责 |
 |---|---|
 | `proof-contracts` | Case、Receipt、Run、Event 与 Formal Evaluation 契约 |
+| `core-training-runtime` | 领域无关的 Rollout/Evaluation/Optimization/Epoch 循环与清理保证 |
 | `proof-agent` | 稳定、可替换的 Prover Provider 契约与 Registry |
 | `prover-code-agent` | 默认官方 Code Agent Prover 定义与工具 |
 | `proof-loss` | 稳定、可替换的 Formal Loss 契约与 Registry |
-| `loss-lean-dual` | Lean + 白盒 Loss，以及 `lean-rule-only` 消融 Provider |
-| `proof-runtime` | Run 状态机、参数、Session、Worktree、Step/成本预算、校验与停止 |
+| `loss-lean-dual` | 完整拥有不可变 Candidate 校验、白盒审查、Commit 绑定 Loss 与 `lean-rule-only` 消融 |
+| `proof-runtime` | Formal Case/Run 状态、Session、Worktree、预算、证据持久化与停止 Adapter |
 | `proof-observer` | 持久 Run Snapshot 与关联 DSH Session 的领域事件账本 |
 | `proof-verification` | 稳定 Verifier 注册中心 |
 | `verifier-lean` | 确定性 Lean 规则检查 |

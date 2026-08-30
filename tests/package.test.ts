@@ -14,6 +14,7 @@ async function manifest(path: string): Promise<{
 
 test('workspace publishes independent core, domain, adapter, tool, and Bundle packages', async () => {
   assert.equal((await manifest('core/optimization')).name, '@tokens-as-parameters/core-optimization')
+  assert.equal((await manifest('core/training-runtime')).name, '@tokens-as-parameters/core-training-runtime')
   assert.equal((await manifest('core/optimizer-relative-reflection')).name, '@tokens-as-parameters/optimizer-relative-reflection')
   assert.equal((await manifest('formal/proof-runtime')).name, '@tokens-as-parameters/proof-runtime')
   assert.equal((await manifest('formal/proof-agent')).name, '@tokens-as-parameters/proof-agent')
@@ -33,6 +34,7 @@ test('workspace publishes independent core, domain, adapter, tool, and Bundle pa
 test('Core packages do not depend on Formal, Lean, Chips, or Bundle packages', async () => {
   for (const path of [
     'core/optimization',
+    'core/training-runtime',
     'core/optimizer-relative-reflection',
     'core/state-git',
     'core/telemetry',

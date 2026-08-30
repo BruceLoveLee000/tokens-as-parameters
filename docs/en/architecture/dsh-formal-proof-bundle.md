@@ -4,14 +4,15 @@
 
 ## System boundary and plugin seams
 
-Formal proof is the first domain application of Tokens as Parameters. The Bundle composes three independently replaceable research plugins: a **Prover Agent** for forward search, a **Loss** for evaluating every resulting state, and an **Optimizer** for semantic feedback, text-parameter updates, and next-parent scheduling. `proof-runtime` owns only Run/Epoch lifecycle, DSH Sessions, Git worktrees, budgets, persistence, and stopping.
+Formal proof is the first domain application of Tokens as Parameters. The Bundle composes three independently replaceable research plugins: a **Prover Agent** for forward search, a **Loss** for evaluating every resulting state, and an **Optimizer** for semantic feedback, text-parameter updates, and next-parent scheduling. `core-training-runtime` owns the policy-free Epoch loop; `proof-runtime` is the Formal adapter for Cases, DSH Sessions, Git worktrees, budgets, persistence, and proof-result projection.
 
 The first release remains experiment-only over immutable repository Cases. Arbitrary user workspaces are tracked in [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4).
 
 ```mermaid
 flowchart TB
-  User[User / official DSH Web] --> Runtime[proof-runtime controller]
-  Cases[Committed immutable Cases] --> Runtime
+  User[User / official DSH Web] --> Adapter[proof-runtime Formal adapter]
+  Cases[Committed immutable Cases] --> Adapter
+  Adapter --> Runtime[core-training-runtime]
 
   subgraph Prover[Prover Agent seam]
     AgentRegistry[proof-agent registry]
@@ -33,8 +34,8 @@ flowchart TB
   Dual --> Lean
   Dual --> Judge
   Runtime --> Optimization --> Reflection
-  Runtime --> Git[Git solution-state graph]
-  Runtime --> Observer[run.json / events.jsonl / DSH sessions]
+  Adapter --> Git[Git solution-state graph]
+  Adapter --> Observer[run.json / events.jsonl / DSH sessions]
 ```
 
 An ablation may change `prover`, `loss`, or `optimizer` independently while holding the Case, model, budgets, and remaining plugins fixed. The Bundle still reuses official DSH Code Agent, Agent Loop, native tools, context compaction, credentials, token accounting, Session persistence, and trajectory UI.
@@ -57,9 +58,9 @@ The default ids are `formal-code-agent`, `lean-dual-check`, and `relative-reflec
 
 This table is the model definition for the current experiment. Core merely validates and versions the registered parameters. A future mathematical prover or Code Agent trainer can register different ids and descriptions without changing Core.
 
-The three parameter sections have stable context positions. Before each Prover session, Runtime records a context snapshot containing their exact revisions. The Reflector can therefore ask “where was this parameter revision used and what did the checker observe?” instead of inferring attribution from prose.
+The three parameter sections have stable context positions. Before each Prover session, the Formal adapter records a context snapshot containing their exact revisions. The Reflector can therefore ask “where was this parameter revision used and what did the checker observe?” instead of inferring attribution from prose.
 
-Runtime uses DSH `agentPresets.composeFrom` so Prover and white-box Judge join the same preset generation as the owner Agent. Prover receives native `bash/read/write/edit/glob/grep/skill`; Judge receives the read-only subset. Outer lifecycle tools are unavailable. The Prover may create or refactor proof-side Lean files; `editableFiles` is a starting hint, while locked hashes and theorem signatures define the immutable boundary.
+The Formal adapter uses DSH `agentPresets.composeFrom` so Prover and white-box Judge join the same preset generation as the owner Agent. Prover receives native `bash/read/write/edit/glob/grep/skill`; Judge receives the read-only subset. Outer lifecycle tools are unavailable. The Prover may create or refactor proof-side Lean files; `editableFiles` is a starting hint, while locked hashes and theorem signatures define the immutable boundary.
 
 ## Run and Epoch flow
 
@@ -68,7 +69,8 @@ Every start creates a new `runId`; separate Runs do not inherit mutable proof or
 ```mermaid
 sequenceDiagram
   participant U as User
-  participant C as Proof controller
+  participant C as Formal adapter
+  participant T as Core Training Runtime
   participant P as Parallel Provers
   participant L as Loss plugin
   participant O as Optimizer Agent
@@ -77,19 +79,20 @@ sequenceDiagram
   U->>C: start(registered case id, budget, rollout count)
   C->>G: verify clean source commit; copy Case; initialize Run Git baseline
   C->>L: preflight frozen baseline; capture dependency cache
+  C->>T: configure typed Formal hooks and initial state
   loop until proof or terminal budget
-    C->>P: parameter state vN + optimizer-selected parent/task + isolated worktree
+    T->>P: parameter state vN + optimizer-selected parent/task + isolated worktree
     P->>P: search, use tools, record Insights, continue after request max-token boundaries
-    P-->>L: candidate source state
-    L->>L: Lean rule check + white-box Judge
-    L-->>C: structured ProofLossReport
-    C->>G: commit safe proof-source state and Loss provenance
-    C->>O: parameters + losses + eligible states + evidence tools
+    P->>G: commit immutable Candidate source state
+    G-->>L: Candidate Commit
+    L->>L: Lean rule check + white-box Judge on that Commit
+    L-->>T: commit-bound ProofReceipt + ProofLossReport
+    T->>O: parameters + losses + eligible states + evidence tools
     O->>O: autonomously inspect traces, files, commits and diffs
-    O-->>C: OptimizationDecision(update + next parents/tasks)
-    C->>G: parameter state vN+1 + reflection decision node
+    O-->>T: OptimizationDecision(update + next parents/tasks)
+    T->>G: parameter state vN+1 + reflection decision node
   end
-  C->>L: require solved Loss and fresh final Lean recheck
+  T->>C: complete on solved, commit-matched Loss
   C->>G: persist final receipt and Loss report
 ```
 
@@ -111,7 +114,7 @@ The Reflector is a multi-step Agent. Its default context contains the parameter 
 
 It submits one `OptimizationDecision`: replacements for any subset of feedback-enabled parameters plus exactly one eligible parent/task directive per next lane. Omitting a parameter preserves it. The controller atomically validates the parameter version, lane coverage, and state eligibility. At the step boundary inspection tools are removed and only `submit_reflection` remains. One invalid schema receives actionable feedback; a second invalid submission falls back to a neutral decision.
 
-`record_insight(summary, insight)` lets a Prover select a high-information cognitive/evidence transition. Runtime writes the Insight and commits all safe changed proof sources rather than an `editableFiles` allowlist. Reflection creates a provenance node containing parameter updates and next-lane scheduling; Git parentage records consumed states without pretending that their proof trees were merged.
+`record_insight(summary, insight)` lets a Prover select a high-information cognitive/evidence transition. The Formal adapter writes the Insight and commits all safe changed proof sources rather than an `editableFiles` allowlist. Reflection creates a provenance node containing parameter updates and next-lane scheduling; Git parentage records consumed states without pretending that their proof trees were merged.
 
 ## Trust boundary
 
@@ -124,11 +127,11 @@ Model prose, shell claims, reflection, Git commits, and Judge approval are untru
 5. the configured Lean build succeeds;
 6. each counted obligation has an allowed `#print axioms` result;
 7. dual Loss white-box review finds no semantic weakening or reward hacking;
-8. final acceptance closes every declared obligation and survives a fresh Lean recheck.
+8. final acceptance closes every declared obligation, and both Receipt and Loss identify the exact immutable Candidate Commit.
 
 Before every trust check, the Verifier removes the lane's prior `.lake/build` and `.lake/config` outputs and rebuilds from the authorized sources. Generated compiler state therefore cannot become either an unauthorized-path false positive or a reusable model-controlled proof artifact.
 
-The default Loss runs white-box review after every rollout, so a veto becomes immediate negative feedback to the Optimizer rather than a final-only surprise. A helper-only state can remain verified and selectable without being mislabeled obligation progress. Only a fresh rechecked obligation gain advances the controller's trusted count.
+The default Loss runs Lean and white-box review after every rollout, so a veto becomes immediate negative feedback to the Optimizer rather than a final-only surprise. A helper-only state can remain verified and selectable without being mislabeled obligation progress. Only a commit-matched, dual-Loss obligation gain advances the controller's trusted count; Runtime does not repeat the Lean build after evaluation.
 
 The claim scope remains explicit. `lean-model-vs-spec` does not imply RTL fidelity without an independently versioned RTL-to-Lean certificate or adapter.
 
@@ -137,11 +140,12 @@ The claim scope remains explicit. `lean-model-vs-spec` does not imply RTL fideli
 | Package/plugin | Responsibility |
 |---|---|
 | `proof-contracts` | case, receipt, run, event, and Formal evaluation contracts |
+| `core-training-runtime` | domain-neutral Rollout/Evaluation/Optimization/Epoch loop and cleanup guarantees |
 | `proof-agent` | stable replaceable Prover provider contract and registry |
 | `prover-code-agent` | default official-Code-Agent Prover definition and tools |
 | `proof-loss` | stable replaceable formal Loss contract and registry |
-| `loss-lean-dual` | Lean plus white-box Loss and `lean-rule-only` ablation |
-| `proof-runtime` | Run state machine, parameters, Sessions, worktrees, step/cost budgets, validation, and stopping |
+| `loss-lean-dual` | owns immutable Candidate verification, white-box review, commit-bound Loss, and `lean-rule-only` ablation |
+| `proof-runtime` | Formal adapter for Case/run state, Sessions, worktrees, budgets, evidence persistence, and stopping |
 | `proof-observer` | durable run snapshots and domain-event ledger linked to DSH sessions |
 | `proof-verification` | stable Verifier registry |
 | `verifier-lean` | deterministic Lean rule checks |

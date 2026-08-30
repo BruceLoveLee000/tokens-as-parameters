@@ -16,7 +16,7 @@ Not every token is a parameter. A token becomes parameter-like when it is optimi
 
 Research preview. The first release is intentionally **experiment-only**. It runs repository-versioned immutable Cases, materializes a fresh Run-owned Git workspace for each invocation, and never edits or merges back into the Case. Production operation on user-selected workspaces is deferred to [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4).
 
-The DSH-native formal-proof system is a workspace of independent Core, Formal, Lean, Tool, and Bundle packages targeting the `0.1.1-rc.2` public extension APIs. It provides replaceable Prover, Loss, and Optimizer plugins; isolated parallel search states; per-rollout Lean plus white-box feedback; optimizer-selected Git parents; and durable run evidence.
+The DSH-native formal-proof system is a workspace of independent Core, Formal, Lean, Tool, and Bundle packages targeting the `0.1.1-rc.2` public extension APIs. A domain-neutral Core Training Runtime drives replaceable Prover, Loss, and Optimizer plugins; Formal adapters add isolated search states, commit-bound Lean plus white-box feedback, optimizer-selected Git parents, and durable run evidence.
 
 ## Research question
 
@@ -26,6 +26,7 @@ Given fixed model weights, can a verifier-guided optimizer update persistent tex
 
 - DSH-native orchestration over the official Code Agent and Agent Loop.
 - A `packages/core/optimization` kernel where domain Agents register versioned text parameters, select feedback eligibility per instance, record exact context exposure, and accept atomic semantic updates from replaceable Optimizers.
+- A `packages/core/training-runtime` loop that composes Rollout, Evaluation, Optimization, state application, and guaranteed Epoch cleanup without importing Formal or Lean semantics.
 - Parallel, isolated reasoning trajectories with persistent run identity.
 - Verifier-gated trusted progress and reward-hacking defenses.
 - Comparative reflection as a directional textual update.

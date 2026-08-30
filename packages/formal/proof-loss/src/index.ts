@@ -6,6 +6,7 @@ import type {
   WhiteboxReview,
 } from '@tokens-as-parameters/proof-contracts'
 import type { ResolvedCase } from '@tokens-as-parameters/proof-contracts/case-manifest'
+import type { ProofVerifier } from '@tokens-as-parameters/proof-verification'
 
 export interface ProofLossJudgeOptions {
   agent: Agent
@@ -19,17 +20,35 @@ export interface ProofLossJudgeCapture {
 }
 
 export interface ProofLossInput {
+  candidateCommit: string
   receipt: ProofReceipt
   baselineClosed: number
   whitebox?: WhiteboxReview
 }
 
-/** Loss providers own feedback semantics, not Git persistence or scheduling. */
+export interface ProofLossEvaluationInput {
+  resolvedCase: ResolvedCase
+  worktree: string
+  candidateCommit: string
+  baseCommit: string
+  baselineClosed: number
+  signal: AbortSignal
+  verifier: ProofVerifier
+  review(receipt: ProofReceipt): Promise<WhiteboxReview | undefined>
+}
+
+export interface ProofLossEvaluation {
+  receipt: ProofReceipt
+  loss: ProofLossReport
+}
+
+/** Loss providers own verifier/reviewer ordering and feedback semantics, not Git persistence or scheduling. */
 export interface ProofLossProvider {
   readonly id: string
   readonly requiresJudge: boolean
   installJudge?(agentContext: Context, options: ProofLossJudgeOptions): ProofLossJudgeCapture
-  evaluate(input: ProofLossInput): ProofLossReport
+  score(input: ProofLossInput): ProofLossReport
+  evaluate(input: ProofLossEvaluationInput): Promise<ProofLossEvaluation>
 }
 
 declare module '@deepseek-ai/cordis' {

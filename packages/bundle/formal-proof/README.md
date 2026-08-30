@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-`@tokens-as-parameters/bundle-formal-proof` is an installable DeepSeek Harness Bundle. It composes independent Core Optimizer, Formal, Lean, and Tool packages over the official DSH Code Agent and Agent Loop. The Bundle itself contains no proof implementation.
+`@tokens-as-parameters/bundle-formal-proof` is an installable DeepSeek Harness Bundle. It composes the domain-neutral Core Training Runtime with independent Optimizer, Formal, Lean, and Tool packages over the official DSH Code Agent and Agent Loop. The Bundle itself contains no proof implementation.
 
 ## Compatibility
 
@@ -38,11 +38,11 @@ The package manifest's `dsh.bundle.patch` composes twelve runtime plugins:
 - `proof-loss` / `loss-lean-dual`: replaceable Loss registry and default per-rollout Lean plus white-box provider;
 - `proof-verification`: stable Verifier registry;
 - `verifier-lean`: deterministic Lean rule-check Provider;
-- `proof-runtime`: background lifecycle, isolated worktrees/Sessions, plugin dispatch, Git state graph, and stop policy;
+- `proof-runtime`: Formal Case, DSH Session, Worktree, run-ledger, and result adapter over the `core-training-runtime` library;
 - `tool-proof-run`: experiment-only `chip_proof`, `chip_proof_cases`, `proof_run_status`, `proof_run_list`, and `proof_run_stop`.
 - `ui-proof-run`: projects Proof Runtime state, trusted progress, run history, and Agent-session links into DSH Web, with a model-free Stop button.
 
-Libraries such as `proof-contracts`, `core-state-git`, and `core-telemetry` are dependencies of those plugins rather than Bundle rows.
+Libraries such as `core-training-runtime`, `proof-contracts`, `core-state-git`, and `core-telemetry` are dependencies of those plugins rather than Bundle rows. Core owns the policy-free `rollout → evaluate → optimize → apply` loop; it imports no Formal or Lean package.
 
 ## Case contract
 
@@ -99,8 +99,8 @@ Every Prover, Reflector, and Reviewer is an official DSH Session. The native con
 ## Trust and stopping rules
 
 - Prover text is never proof evidence.
-- `lean-dual-check` combines controller-owned locked/signature/hygiene/build/axiom checks with a read-only white-box Judge after every rollout. `lean-rule-only` is the explicit black-box-only ablation.
-- A final `PROVED` requires a `solved` Loss and a fresh controller Lean recheck of every declared obligation, including the top theorem.
+- `lean-dual-check` owns the ordered evaluation of one immutable Candidate Commit: Lean locked/signature/hygiene/build/axiom checks followed by a read-only white-box Judge. `lean-rule-only` is the explicit black-box-only ablation.
+- `ProofReceipt` and `ProofLossReport` both bind the exact Candidate Commit. A final `PROVED` requires a commit-matched `solved` Loss that closes every declared obligation, including the top theorem; Runtime does not repeat the Lean build after that Loss.
 - Lanes are isolated by Git Worktree and DSH Session. There is no automatic consolidation. The Optimizer chooses each next parent; semantic integration is an ordinary Prover task followed by the same Loss.
 - A run stops on accepted proof, user cancellation, total-token or wall-time exhaustion, or an unrecoverable infrastructure error. Lack of progress and route similarity remain observable behavior; they do not stop an otherwise funded experiment.
 - This release does not yet contain an independently certified counterexample adapter; therefore it does not emit `DISPROVED` merely from model prose.

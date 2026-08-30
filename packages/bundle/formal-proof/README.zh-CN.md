@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文
 
-`@tokens-as-parameters/bundle-formal-proof` 是一个可安装的 DeepSeek Harness Bundle。它在 DSH 官方 Code Agent 与 Agent Loop 之上组装彼此独立的 Core Optimizer、Formal、Lean 与 Tool Package；Bundle 自身不承载证明实现。
+`@tokens-as-parameters/bundle-formal-proof` 是一个可安装的 DeepSeek Harness Bundle。它在 DSH 官方 Code Agent 与 Agent Loop 之上，把领域无关的 Core Training Runtime 与彼此独立的 Optimizer、Formal、Lean、Tool Package 组装起来；Bundle 自身不承载证明实现。
 
 ## 兼容性
 
@@ -38,11 +38,11 @@ Package Manifest 中的 `dsh.bundle.patch` 会组合十二个运行时插件：
 - `proof-loss` / `loss-lean-dual`：可替换 Loss Registry 与默认逐 Rollout Lean + 白盒 Provider；
 - `proof-verification`：稳定的 Verifier 注册中心；
 - `verifier-lean`：确定性 Lean 规则检查 Provider；
-- `proof-runtime`：后台生命周期、隔离 Worktree/Session、Plugin 调度、Git 状态图与停止策略；
+- `proof-runtime`：`core-training-runtime` 之上的 Formal Case、DSH Session、Worktree、运行账本与结果 Adapter；
 - `tool-proof-run`：仅用于实验的 `chip_proof`、`chip_proof_cases`、`proof_run_status`、`proof_run_list` 和 `proof_run_stop`。
 - `ui-proof-run`：把 Proof Runtime 状态机、可信进度、历史 Run 与 Agent Session 入口投影到 DSH Web，并提供不经过模型的停止按钮。
 
-`proof-contracts`、`core-state-git` 与 `core-telemetry` 等库是上述插件的依赖，不是 Bundle Row。
+`core-training-runtime`、`proof-contracts`、`core-state-git` 与 `core-telemetry` 等库是上述插件的依赖，不是 Bundle Row。Core 只负责无策略的 `rollout → evaluate → optimize → apply` 循环，不引用 Formal 或 Lean Package。
 
 ## Case 契约
 
@@ -74,8 +74,8 @@ Package Manifest 中的 `dsh.bundle.patch` 会组合十二个运行时插件：
 ## 信任与停止规则
 
 - Prover 文本永远不构成证明证据；
-- `lean-dual-check` 把 Controller 自有的锁定/Signature/Hygiene/Build/Axiom 检查，与每个 Rollout 后的只读白盒 Judge 组合起来；`lean-rule-only` 是显式的纯黑盒消融；
-- 最终 `PROVED` 要求 Loss 为 `solved`，并由 Controller 重新执行 Lean 检查关闭包括顶层定理在内的所有 Obligation；
+- `lean-dual-check` 完整拥有一个不可变 Candidate Commit 的有序评估：先执行 Lean 锁定/Signature/Hygiene/Build/Axiom 检查，再执行只读白盒 Judge；`lean-rule-only` 是显式的纯黑盒消融；
+- `ProofReceipt` 与 `ProofLossReport` 都绑定精确 Candidate Commit。最终 `PROVED` 要求 Commit 匹配的 `solved` Loss 关闭包括顶层定理在内的全部 Obligation；Runtime 不会在该 Loss 之后重复执行 Lean Build；
 - Lane 通过 Git Worktree 与 DSH Session 隔离；系统不自动合并。Optimizer 选择每条下一父状态，语义整合是普通 Prover 任务，之后经过同一 Loss；
 - Run 会在证明被接受、用户取消、总 Token 或总时间耗尽、或出现不可恢复的基础设施错误时停止；无进展和路线相似属于需要保留的实验行为，只要预算仍在就不会触发停止；
 - 当前版本尚未包含经过独立认证的反例适配器，因此不会仅依据模型文本输出 `DISPROVED`。

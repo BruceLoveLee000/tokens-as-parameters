@@ -205,7 +205,7 @@ export type RunState =
   | 'FAILED'
 
 export interface ProofHygieneFinding {
-  kind: 'admit' | 'axiom' | 'unsafe' | 'signature' | 'locked-input' | 'unauthorized-change' | 'build' | 'axiom-audit'
+  kind: 'admit' | 'axiom' | 'unsafe' | 'signature' | 'locked-input' | 'unauthorized-change' | 'candidate-state' | 'build' | 'axiom-audit'
   message: string
   path?: string
 }
@@ -216,6 +216,8 @@ export interface ProofReceipt {
   caseId: string
   claimScope: CaseManifest['claimScope']
   worktree: string
+  /** Immutable Git state checked by the trusted evaluator; absent only for interactive diagnostics and old runs. */
+  candidateCommit?: string
   build: CommandReceipt
   lockedInputsMatch: boolean
   theoremSignatureMatches: boolean
@@ -282,6 +284,7 @@ export type ProofLossVerdict = 'invalid' | 'no-progress' | 'progress' | 'solved'
 export interface ProofLossReport {
   schemaVersion: typeof RUN_SCHEMA_VERSION
   pluginId: string
+  candidateCommit: string
   evaluatedAt: string
   verdict: ProofLossVerdict
   candidateStatus: ProofCandidateStatus

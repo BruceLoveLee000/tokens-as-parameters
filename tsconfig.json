@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "packages/core/optimization" },
+    { "path": "packages/core/training-runtime" },
     { "path": "packages/core/telemetry" },
     { "path": "packages/core/state-git" },
     { "path": "packages/core/optimizer-relative-reflection" },

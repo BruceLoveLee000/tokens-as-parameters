@@ -4,7 +4,7 @@
 
 ## 架构决策
 
-Tokens as Parameters 要训练的是 **Agent**，不是基础大模型，也不是藏在 Core 中的某个领域工作流。一个 Agent 的有效架构由固定定义、工具、Skill、环境适配器以及版本化文本参数共同构成。领域 Plugin 负责定义这套架构；Core 只提供注册、暴露、评估和更新文本参数的领域无关机制。
+Tokens as Parameters 要训练的是 **Agent**，不是基础大模型，也不是藏在 Core 中的某个领域工作流。一个 Agent 的有效架构由固定定义、工具、Skill、环境适配器以及版本化文本参数共同构成。领域 Plugin 负责定义这套架构；Core 同时提供领域无关的文本参数机制，以及无策略的 `rollout → evaluate → optimize → apply` Training Runtime。
 
 DSH Bundle 是一套可部署的训练系统。它可以组装目标 Agent、Optimizer Agent、Evaluator、持久化与控制能力，但 Bundle 自身不是模型。
 
@@ -17,6 +17,7 @@ flowchart TB
     Feedback[Loss Report 与证据访问]
     Contract[原子更新与 Rollout 调度契约]
     Optimizers[Optimizer 注册中心]
+    Loop[Training Runtime 循环]
   end
 
   subgraph Adapter[DSH 适配层]
@@ -31,7 +32,7 @@ flowchart TB
   end
 
   subgraph Product[Bundle / 实验]
-    Runtime[Epoch 与 Rollout Runtime]
+    Adapter[领域 Runtime Adapter]
     Controls[控制与可观测性]
   end
 
@@ -47,12 +48,14 @@ flowchart TB
   Feedback --> Optimizers
   Optimizers --> Contract
   Contract --> State
-  Runtime --> Sessions
-  Runtime --> State
-  Controls --> Runtime
+  Adapter --> Loop
+  Loop --> Sessions
+  Loop --> State
+  Loop --> Optimizers
+  Controls --> Adapter
 ```
 
-依赖方向只能向上：Core 不得导入 Formal、Lean、Chips、数学、Code Agent 定义或 Benchmark Package。
+依赖方向只能向上：Core 不得导入 Formal、Lean、Chips、数学、Code Agent 定义或 Benchmark Package。领域 Adapter 通过 Training Runtime Hook 实现 Candidate 生成、Evaluation、接受、持久化与清理。
 
 ## 与权重训练的映射
 
@@ -135,7 +138,7 @@ Evaluator 可以晋升 Solution State，Optimizer 可以提出 Parameter State �
 ```mermaid
 sequenceDiagram
   participant D as 领域 Agent Definition
-  participant R as Runtime
+  participant R as Core Training Runtime
   participant A as 目标 Agent Sessions
   participant E as Evaluator
   participant O as Optimizer Agent
@@ -160,6 +163,7 @@ Relative Reflection 实现有意输出语义更新，而不是强制压成标量
 | Package | 负责 | 不负责 |
 |---|---|---|
 | `core-optimization` | 参数、暴露、Evaluation、可用状态、Rollout 指令、更新与 Optimizer 注册契约 | 领域参数 ID、Loss 语义或 Agent Prompt |
+| `core-training-runtime` | 并行 Rollout、Evaluation 顺序、Optimizer 调用、原子状态转移、Epoch 生命周期与清理 Hook | Lean、定理 Obligation、证明 Verdict、领域预算或接受语义 |
 | `optimizer-relative-reflection` | 自主检查证据并提出语义更新 | 验收任务结果或注入领域答案 |
 | `core-state-git` | Git 支撑的 Insight 与参数状态转移来源链 | 证明语义 |
 | `core-telemetry` | 有界 DSH Trace 投影与精确 Token 维度 | 训练策略 |
@@ -177,6 +181,7 @@ Cordis `ctx.optimization` Service 是注册 Optimizer Provider 的 DSH 适配缝
 - 结构化 Evaluation 和有界证据工具；
 - 带过期/冻结校验的原子子集更新；
 - 可替换 Optimizer Provider、经过校验的逐 Lane 父状态/任务调度与 Git 来源记录。
+- 带类型 Hook 与 Epoch 清理保证的领域无关 Training Runtime。
 
 等待实验驱动后再实现：
 

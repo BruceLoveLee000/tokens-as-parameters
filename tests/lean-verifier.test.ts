@@ -25,6 +25,7 @@ class FakeRunner implements CommandRunner {
     private readonly axiomOutput = "'helper' does not depend on any axioms\n'top' does not depend on any axioms",
     private readonly changedPaths = '',
     private readonly baselineProof?: string,
+    private readonly headCommit = 'candidate-1',
   ) {}
 
   async run(spec: CommandSpec): Promise<CommandReceipt> {
@@ -32,12 +33,13 @@ class FakeRunner implements CommandRunner {
     const audit = spec.argv.includes('lean')
     const changed = spec.argv[0] === 'git' && spec.argv[1] === 'diff'
     const show = spec.argv[0] === 'git' && spec.argv[1] === 'show'
+    const head = spec.argv[0] === 'git' && spec.argv[1] === 'rev-parse'
     return {
       argv: [...spec.argv],
       cwd: spec.cwd,
       exitCode: show && this.baselineProof === undefined ? 1 : audit || show ? 0 : this.buildExitCode,
       signal: null,
-      stdout: audit ? this.axiomOutput : changed ? this.changedPaths : show ? this.baselineProof ?? '' : '',
+      stdout: audit ? this.axiomOutput : changed ? this.changedPaths : show ? this.baselineProof ?? '' : head ? `${this.headCommit}\n` : '',
       stderr: '',
       stdoutTruncated: false,
       stderrTruncated: false,
@@ -135,6 +137,31 @@ test('verifier accepts only a built, frozen, closed and axiom-clean candidate', 
   const mutated = await new LeanVerifier(new FakeRunner()).check(resolved, root)
   assert.equal(mutated.finalAccepted, false)
   assert.equal(mutated.lockedInputsMatch, false)
+})
+
+test('trusted verifier receipt binds the exact clean candidate commit', async () => {
+  const { root, resolved } = await fixture()
+  const accepted = await new LeanVerifier(new FakeRunner()).check(
+    resolved,
+    root,
+    0,
+    undefined,
+    undefined,
+    'candidate-1',
+  )
+  assert.equal(accepted.candidateCommit, 'candidate-1')
+  assert.equal(accepted.finalAccepted, true)
+
+  const stale = await new LeanVerifier(new FakeRunner(0, undefined, '', undefined, 'different-head')).check(
+    resolved,
+    root,
+    0,
+    undefined,
+    undefined,
+    'candidate-1',
+  )
+  assert.equal(stale.finalAccepted, false)
+  assert.equal(stale.findings.some(finding => finding.kind === 'candidate-state'), true)
 })
 
 test('forbidden obligation dependencies do not count as trusted progress', async () => {
