@@ -51,7 +51,7 @@ flowchart TB
 | `task.memory` | 简洁的 Verifier 证据、可复用发现与被否定假设 | Agent 实例可选择；默认开放 |
 | `task.plan` | 公共证明搜索策略与优先级 | 可选择；默认开放 |
 | `lane.<id>.route` | 每路独立搜索任务 | 可选择；默认开放 |
-| 工具 | 继承宿主 Session 的官方 Code Agent Preset，加 `record_insight`、`lean_check_candidate` 与 `submit_proof_candidate` | 本实验冻结 |
+| 工具 | 继承宿主 Session 的官方 Code Agent Preset，加 `git_commit`、`record_insight`、`lean_check_candidate` 与 `submit_proof_candidate` | 本实验冻结 |
 | Skill | 由安装的 DSH 环境提供 | Bundle 不携带 FDIV 专属 Skill |
 
 这张表就是当前实验的模型定义。Core 只校验和版本化已注册参数。未来数学 Prover 或 Code Agent Trainer 可以注册完全不同的 ID 和描述，无需修改 Core。
@@ -59,6 +59,8 @@ flowchart TB
 三个参数 Section 的上下文位置固定。每个 Prover Session 开始前，Formal Adapter 都记录包含精确 Revision 的上下文快照。Reflector 因此可以查询“这个参数版本在哪里被使用、Checker 看到了什么结果”，而不是从模型文字中猜归因。
 
 Formal Adapter 通过 DSH `agentPresets.composeFrom` 让 Prover 和白盒 Judge 复用宿主 Agent 的 Preset Generation。Prover 使用原生 `bash/read/write/edit/glob/grep/skill`，Judge 使用只读子集；外层生命周期工具不会进入它们的可调用面。Prover 可以创建或重构证明侧 Lean 文件；`editableFiles` 只是起始提示，锁定 Hash 与定理 Signature 才定义不可变边界。
+
+探索性 Git Checkpoint 的提交时机与 Commit Message 由 Prover 自主决定。它可以通过原生 Shell 检查 `git status`、`git diff` 与 `git log`，再调用 `git_commit(message)` 原子提交当前全部安全证明源码变更。之所以提供专用写工具，是因为 Detached Linked Worktree 的可写 Git Metadata 位于 Session Workspace Root 之外；若只为更新这些 Metadata 就允许任意 Shell 提权，会不必要地扩大权限。该工具不会执行 Push、Reset、Rebase 或修改 Remote。Runtime 记录生成的节点，并可在最终提交时捕获尚未提交的安全源码，但不会替 Prover 决定何时建立 Checkpoint。所有这类 Commit 在经过 Loss 评估前都不受信。
 
 ## Run 与 Epoch 执行流
 
@@ -80,8 +82,8 @@ sequenceDiagram
   C->>T: 配置带类型的 Formal Hook 与初始状态
   loop 直到证明成功或终止预算
     T->>P: 参数状态 vN + Optimizer 选择的父状态/任务 + 隔离 Worktree
-    P->>P: 搜索、调用工具、记录 Insight，并在单次 max-token 后续跑
-    P->>G: 提交不可变 Candidate Source State
+    P->>P: 搜索、调用工具、自主规划 Git Checkpoint，并在单次 max-token 后续跑
+    P->>G: 自主提交探索状态与最终 Candidate
     G-->>L: Candidate Commit
     L->>L: 在该 Commit 上执行 Lean 规则检查 + 白盒 Judge
     L-->>T: 绑定 Commit 的 ProofReceipt + ProofLossReport
@@ -112,7 +114,7 @@ Reflector 是多 Step Agent。默认上下文包含参数注册表、精确暴�
 
 它提交一个 `OptimizationDecision`：任意一组开放反馈参数的替换，以及每条下一轮 Lane 唯一的合法父状态/任务。省略参数即保持。Controller 原子校验参数版本、Lane 完整性和状态资格。达到 Step 边界后检查工具被移除，只保留 `submit_reflection`；第一次 Schema 错误获得可操作反馈，第二次错误回退为中性决策。
 
-`record_insight(summary, insight)` 让 Prover 主动选择高信息密度的认知/证据状态转移。Formal Adapter 写入 Insight，并提交所有安全的已变更证明源码，而不再依赖 `editableFiles` 白名单。反思节点保存参数更新与下一轮调度；Git Parent 记录所消费状态，但不伪装成证明树已经合并。
+`git_commit(message)` 让 Prover 无需请求 Shell 提权即可自主选择普通源码状态转移。`record_insight(summary, insight)` 用于选择信息密度更高的认知/证据状态转移：Formal Adapter 写入 Insight，并把它与所有安全的已变更证明源码提交到同一棵 Tree，而不再依赖 `editableFiles` 白名单。删除未锁定、已经废弃的证明源码也是合法状态转移；Verifier 会跳过对不存在文件的 Hygiene 读取，同时独立执行锁定 Hash、Theorem Signature、Import、Lean Build 与 Axiom Audit。反思节点保存参数更新与下一轮调度；Git Parent 记录所消费状态，但不伪装成证明树已经合并。
 
 ## 信任边界
 

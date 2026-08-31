@@ -314,7 +314,11 @@ export class LeanVerifier implements ProofVerifier {
       for (const path of changed.filter(path => path.endsWith('.lean') && path !== manifest.lean.proofFile)) {
         try {
           findings.push(...proofHygiene(await readFile(resolveInside(worktree, path), 'utf8'), path))
-        } catch {
+        } catch (error) {
+          // A deleted proof-side source is still a meaningful Git transition, but
+          // there is no remaining source text to audit. Locked files, the theorem
+          // signature, imports, and build correctness are checked independently.
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
           findings.push({ kind: 'build', message: `unable to inspect changed Lean source: ${path}`, path })
         }
       }

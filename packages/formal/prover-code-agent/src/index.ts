@@ -138,7 +138,9 @@ export class FormalCodeAgentProver implements ProofAgentProvider {
         `Suggested starting proof surface: ${manifest.editableFiles.join(', ')}. You may create or refactor proof-side source files when useful.`,
         `Never modify locked inputs: ${manifest.lockedInputs.map(item => item.path).join(', ')}. Never weaken the target theorem signature or checker.`,
         'Use Lean feedback as evidence. Intermediate sorry declarations may remain only for obligations not yet closed; never add admit, axioms, unsafe declarations, theorem shadowing, or domain restrictions.',
-        'Call record_insight for a material hypothesis, failure explanation, or reusable proof fact. Runtime commits the whole source state with the insight.',
+        'You control local Git checkpoint timing. Inspect status, diff, and log as needed, then call git_commit with a meaningful message to commit the current safe proof-source state. These commits are exploratory and untrusted until Loss evaluates them.',
+        'Do not request sandbox escalation for Git metadata and do not push, reset, rebase, or modify remotes. The git_commit tool writes the linked-worktree metadata safely on your behalf.',
+        'Call record_insight for a material hypothesis, failure explanation, or reusable proof fact. It commits the whole safe proof-source state together with the Insight as one Git transition.',
         'Call submit_proof_candidate when ready. At the model-step boundary, only that tool remains.',
         'A candidate is trusted only after the configured Loss plugin evaluates deterministic and white-box evidence.',
       ].join('\n'),
@@ -149,6 +151,28 @@ export class FormalCodeAgentProver implements ProofAgentProvider {
 
     let submitOnly = false
     const searchToolDisposers: Array<() => void> = []
+    searchToolDisposers.push(agentCtx.tools.register(defineTool({
+      name: 'git_commit',
+      description: 'Create an untrusted local Git checkpoint from all current safe proof-source changes. You decide when to commit and provide the commit message; no remote operation is performed.',
+      parameters: {
+        message: { type: 'string', required: true, description: 'Concise commit message describing the state transition.' },
+      },
+      output: STRING_OUTPUT,
+      async execute(args, exec) {
+        const message = args.message.trim()
+        if (message.length === 0) throw new Error('git commit message must be non-empty')
+        const before = await options.git.head(
+          options.worktree,
+          AbortSignal.any([options.signal, exec.signal]),
+        )
+        const commit = await options.git.commitSourceState(
+          options.worktree,
+          message,
+          AbortSignal.any([options.signal, exec.signal]),
+        )
+        return JSON.stringify({ commit, created: commit !== before })
+      },
+    })))
     searchToolDisposers.push(agentCtx.tools.register(defineTool({
       name: 'record_insight',
       description: 'Commit the whole current proof-source state together with one concise evidence-backed insight.',

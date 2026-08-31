@@ -187,6 +187,23 @@ test('candidate may add proof-side Lean sources outside the legacy editable hint
   assert.equal(receipt.findings.some(finding => finding.kind === 'unauthorized-change'), false)
 })
 
+test('candidate may delete an unlocked proof-side Lean source without an unreadable-source failure', async () => {
+  const { root, resolved } = await fixture()
+  const runner = new FakeRunner(
+    0,
+    "'helper' does not depend on any axioms\n'top' does not depend on any axioms",
+    'formal/RemovedScratch.lean\n',
+  )
+
+  const receipt = await new LeanVerifier(runner).check(resolved, root, 0, undefined, 'deadbeef')
+
+  assert.equal(receipt.finalAccepted, true)
+  assert.equal(
+    receipt.findings.some(finding => finding.message.includes('unable to inspect changed Lean source')),
+    false,
+  )
+})
+
 test('verifier removes prior Lean build outputs before checking trust', async () => {
   const { root, resolved } = await fixture()
   const buildArtifact = join(root, 'formal', '.lake', 'build', 'lib', 'Proof.olean')

@@ -107,7 +107,7 @@ Every Prover, Reflector, and Reviewer is an official DSH Session. The native con
 
 ## Comparative reflection
 
-The Reflector is an autonomous DSH Agent, not a one-shot summarizer. Its default context contains structured Loss reports, parameter exposures, and eligible state ids. It can search/page traces, list Git nodes, inspect transitions, read files at commits, and compare a path across two rollout states. `record_insight(summary, insight)` commits safe changed proof sources with an explicit cognitive/evidence node.
+The Reflector is an autonomous DSH Agent, not a one-shot summarizer. Its default context contains structured Loss reports, parameter exposures, and eligible state ids. It can search/page traces, list Git nodes, inspect transitions, read files at commits, and compare a path across two rollout states. A Prover autonomously chooses ordinary checkpoints through `git_commit(message)`. `record_insight(summary, insight)` commits safe changed proof sources with an explicit cognitive/evidence node. Both are untrusted until evaluated by Loss; neither pushes or mutates a remote.
 
 After comparison, the Reflector submits an atomic `OptimizationDecision`: text-parameter updates plus one eligible parent/task directive per next lane. The Reflection commit records the decision and consumed tips, but each next Prover starts from the selected solution commit rather than from a synthetic merged tree.
 

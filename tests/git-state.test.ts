@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -139,6 +139,45 @@ test('source checkpoints include new proof files but exclude credential-named ar
   await assert.rejects(git(repository, 'show', `${commit}:api-token.md`))
 })
 
+test('source checkpoints preserve tracked nested paths whose porcelain status starts with a space', async () => {
+  const repository = await mkdtemp(join(tmpdir(), 'tap-tracked-source-state-test-'))
+  await git(repository, 'init', '-q')
+  await git(repository, 'config', 'user.name', 'Test User')
+  await git(repository, 'config', 'user.email', 'test@example.invalid')
+  await mkdir(join(repository, 'verifier'), { recursive: true })
+  const proof = join(repository, 'verifier', 'SmokeProof.lean')
+  await writeFile(proof, 'theorem top : True := by sorry\n', 'utf8')
+  await git(repository, 'add', 'verifier/SmokeProof.lean')
+  await git(repository, 'commit', '-q', '-m', 'baseline')
+
+  await writeFile(proof, 'theorem top : True := by trivial\n', 'utf8')
+  const state = new GitState(new LocalRunner())
+  const commit = await state.commitSourceState(repository, 'candidate source state')
+
+  assert.equal(
+    await git(repository, 'show', `${commit}:verifier/SmokeProof.lean`),
+    'theorem top : True := by trivial',
+  )
+  assert.equal(await git(repository, 'status', '--porcelain'), '')
+})
+
+test('source checkpoints commit tracked proof-source deletions', async () => {
+  const repository = await mkdtemp(join(tmpdir(), 'tap-deleted-source-state-test-'))
+  await git(repository, 'init', '-q')
+  await git(repository, 'config', 'user.name', 'Test User')
+  await git(repository, 'config', 'user.email', 'test@example.invalid')
+  await writeFile(join(repository, 'Scratch.lean'), 'theorem scratch : True := by trivial\n', 'utf8')
+  await git(repository, 'add', 'Scratch.lean')
+  await git(repository, 'commit', '-q', '-m', 'baseline')
+
+  await unlink(join(repository, 'Scratch.lean'))
+  const state = new GitState(new LocalRunner())
+  const commit = await state.commitSourceState(repository, 'remove obsolete proof scratch')
+
+  await assert.rejects(git(repository, 'show', `${commit}:Scratch.lean`))
+  assert.equal(await git(repository, 'status', '--porcelain'), '')
+})
+
 test('recorded insights become Git state nodes despite the protected token path filter', async () => {
   const repository = await mkdtemp(join(tmpdir(), 'tap-insight-state-test-'))
   await git(repository, 'init', '-q')
@@ -149,6 +188,7 @@ test('recorded insights become Git state nodes despite the protected token path 
   await git(repository, 'commit', '-q', '-m', 'baseline')
 
   const state = new GitState(new LocalRunner())
+  await writeFile(join(repository, 'Proof.lean'), 'theorem top : True := by trivial\n', 'utf8')
   const insight = await state.recordInsight(
     repository,
     'run-test',
@@ -161,6 +201,10 @@ test('recorded insights become Git state nodes despite the protected token path 
   assert.match(
     await git(repository, 'show', `${insight.commit}:${insight.path}`),
     /Reduced the goal[\s\S]*normalization helper/,
+  )
+  assert.equal(
+    await git(repository, 'show', `${insight.commit}:Proof.lean`),
+    'theorem top : True := by trivial',
   )
   assert.equal(await git(repository, 'status', '--porcelain'), '')
 })

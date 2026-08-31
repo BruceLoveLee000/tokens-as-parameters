@@ -53,7 +53,7 @@ The default ids are `formal-code-agent`, `lean-dual-check`, and `relative-reflec
 | `task.memory` | concise verifier-backed facts, reusable discoveries, and invalidated assumptions | selectable per Agent instance; enabled by default |
 | `task.plan` | shared proof-search policy and prioritization | selectable; enabled by default |
 | `lane.<id>.route` | lane-specific independent assignment | selectable; enabled by default |
-| tools | owner Session's official Code Agent preset plus `record_insight`, `lean_check_candidate`, and `submit_proof_candidate` | frozen in this experiment |
+| tools | owner Session's official Code Agent preset plus `git_commit`, `record_insight`, `lean_check_candidate`, and `submit_proof_candidate` | frozen in this experiment |
 | Skills | supplied by the installed DSH environment | no FDIV-specific Skill is bundled |
 
 This table is the model definition for the current experiment. Core merely validates and versions the registered parameters. A future mathematical prover or Code Agent trainer can register different ids and descriptions without changing Core.
@@ -61,6 +61,8 @@ This table is the model definition for the current experiment. Core merely valid
 The three parameter sections have stable context positions. Before each Prover session, the Formal adapter records a context snapshot containing their exact revisions. The Reflector can therefore ask “where was this parameter revision used and what did the checker observe?” instead of inferring attribution from prose.
 
 The Formal adapter uses DSH `agentPresets.composeFrom` so Prover and white-box Judge join the same preset generation as the owner Agent. Prover receives native `bash/read/write/edit/glob/grep/skill`; Judge receives the read-only subset. Outer lifecycle tools are unavailable. The Prover may create or refactor proof-side Lean files; `editableFiles` is a starting hint, while locked hashes and theorem signatures define the immutable boundary.
+
+The Prover owns the timing and message of its exploratory Git checkpoints. It may inspect `git status`, `git diff`, and `git log` through the native shell, then call `git_commit(message)` to atomically commit the current safe proof-source changes. The dedicated write tool is necessary because a detached linked worktree stores writable Git metadata outside the Session workspace root; granting unrestricted shell escalation merely to update that metadata would widen authority unnecessarily. The tool performs no push, reset, rebase, or remote mutation. Runtime records the resulting node and may capture any remaining safe source changes at final submission, but it does not decide when the Prover should checkpoint. Every such commit remains untrusted until Loss evaluates it.
 
 ## Run and Epoch flow
 
@@ -82,8 +84,8 @@ sequenceDiagram
   C->>T: configure typed Formal hooks and initial state
   loop until proof or terminal budget
     T->>P: parameter state vN + optimizer-selected parent/task + isolated worktree
-    P->>P: search, use tools, record Insights, continue after request max-token boundaries
-    P->>G: commit immutable Candidate source state
+    P->>P: search, use tools, plan Git checkpoints, continue after request max-token boundaries
+    P->>G: autonomously commit exploratory states and final Candidate
     G-->>L: Candidate Commit
     L->>L: Lean rule check + white-box Judge on that Commit
     L-->>T: commit-bound ProofReceipt + ProofLossReport
@@ -114,7 +116,7 @@ The Reflector is a multi-step Agent. Its default context contains the parameter 
 
 It submits one `OptimizationDecision`: replacements for any subset of feedback-enabled parameters plus exactly one eligible parent/task directive per next lane. Omitting a parameter preserves it. The controller atomically validates the parameter version, lane coverage, and state eligibility. At the step boundary inspection tools are removed and only `submit_reflection` remains. One invalid schema receives actionable feedback; a second invalid submission falls back to a neutral decision.
 
-`record_insight(summary, insight)` lets a Prover select a high-information cognitive/evidence transition. The Formal adapter writes the Insight and commits all safe changed proof sources rather than an `editableFiles` allowlist. Reflection creates a provenance node containing parameter updates and next-lane scheduling; Git parentage records consumed states without pretending that their proof trees were merged.
+`git_commit(message)` lets a Prover choose an ordinary source-state transition without requesting shell escalation. `record_insight(summary, insight)` selects a higher-information cognitive/evidence transition: the Formal adapter writes the Insight and commits it in the same tree as all safe changed proof sources rather than using an `editableFiles` allowlist. Deleting an unlocked obsolete proof source is a valid transition; the verifier skips hygiene reads for absent files while independently enforcing locked hashes, theorem signatures, imports, the Lean build, and axiom audits. Reflection creates a provenance node containing parameter updates and next-lane scheduling; Git parentage records consumed states without pretending that their proof trees were merged.
 
 ## Trust boundary
 

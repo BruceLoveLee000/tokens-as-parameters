@@ -82,7 +82,7 @@ Package Manifest 中的 `dsh.bundle.patch` 会组合十二个运行时插件：
 
 ## 比较反思
 
-Reflector 是自主规划的 DSH Agent，而不是一次性摘要调用。默认上下文包含结构化 Loss Report、参数暴露和可用状态 ID；它可以搜索/分页读取 Trace、列出 Git 节点、检查状态转移、读取 Commit 文件并比较两路同一文件。`record_insight(summary, insight)` 会把安全的已变更证明源码与认知/证据节点一起提交。
+Reflector 是自主规划的 DSH Agent，而不是一次性摘要调用。默认上下文包含结构化 Loss Report、参数暴露和可用状态 ID；它可以搜索/分页读取 Trace、列出 Git 节点、检查状态转移、读取 Commit 文件并比较两路同一文件。Prover 通过 `git_commit(message)` 自主选择普通 Checkpoint；`record_insight(summary, insight)` 会把安全的已变更证明源码与显式认知/证据节点一起提交。两者在经过 Loss 评估前都不受信，也都不会执行 Push 或修改 Remote。
 
 比较完成后，Reflector 提交原子 `OptimizationDecision`：文本参数更新，以及每条下一 Lane 唯一的合法父状态/任务。Reflection Commit 记录决策与已消费 Tip，但下一 Prover 从选中的 Solution Commit 启动，不从合成 Merge Tree 启动。
 
