@@ -96,6 +96,7 @@ export type CaseManifest = z.infer<typeof CaseManifestSchema>
 export const ProofSearchConfigSchema = z.object({
   provider: z.string().trim().min(1).default('deepseek-official'),
   model: z.string().trim().min(1).default('deepseek-v4-flash'),
+  reasoningEffort: z.string().trim().min(1).default('max'),
   prover: z.string().trim().min(1).default('formal-code-agent'),
   loss: z.string().trim().min(1).default('lean-dual-check'),
   optimizer: z.string().trim().min(1).default('relative-reflection'),
@@ -150,6 +151,7 @@ export const StartProofExperimentSchema = z.object({
   search: ProofSearchConfigSchema.default({
     provider: 'deepseek-official',
     model: 'deepseek-v4-flash',
+    reasoningEffort: 'max',
     prover: 'formal-code-agent',
     loss: 'lean-dual-check',
     optimizer: 'relative-reflection',

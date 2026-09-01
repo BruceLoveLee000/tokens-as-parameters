@@ -55,6 +55,8 @@ dsh web
 
 集成层会把这个约定转换成模型可见的 `chip_proof({ case_id })` Tool。Runtime 只接受精确注册的 Case id，不接受任意工作区路径。它会检查 Case 已提交，把 Case 复制到 `.tokens-as-parameters/runs/<runId>/workspace`，再次校验锁定 Hash，并在任何 Prover 启动前初始化新的 Git Baseline。官方 DSH Session UI 继续承担轨迹展示；Bundle 还会为每个 Run 持久化 `run.json` 与 `events.jsonl`。
 
+Lean 依赖包只能通过本地共享缓存复用；缓存键由锁定的 Lake manifest、toolchain、lakefile 和声明的外部依赖提交共同确定。证明构建产物不会跨 Run 共享。
+
 进一步阅读：[Core 架构与 Optimizer Provider 契约](docs/zh-CN/architecture/token-optimization-core.md)、[Bundle 指南](packages/bundle/formal-proof/README.zh-CN.md)、[形式化证明架构](docs/zh-CN/architecture/dsh-formal-proof-bundle.md)和 [FDIV 复现实验协议](experiments/fdiv-reproduction/README.zh-CN.md)。
 
 ## 下一步研究工作

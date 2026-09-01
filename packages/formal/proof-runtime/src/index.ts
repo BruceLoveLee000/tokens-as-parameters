@@ -3,9 +3,9 @@ import { copyFile, mkdir, readdir, readFile } from 'node:fs/promises'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context, Service } from '@deepseek-ai/cordis'
-import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import { installModelSelection, type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-subprocess'
@@ -407,6 +407,7 @@ export default class ProofRunService extends Service {
     await this.verifier(record).prepareBaselineEnvironment?.(
       record.resolvedCase,
       baselineWorktree,
+      this.config.defaultRunRoot,
       record.controller.signal,
     )
     let baselineReceipt: ProofReceipt
@@ -743,6 +744,14 @@ export default class ProofRunService extends Service {
       setup: agentCtx => {
         const agent = agentCtx.agent
         if (agent === undefined) throw new Error('DSH did not associate the unpublished prover agent')
+        installModelSelection(agentCtx, {
+          current: {
+            provider: record.snapshot.config.search.provider,
+            model: record.snapshot.config.search.model,
+            reasoningEffort: ReasoningEffortId(record.snapshot.config.search.reasoningEffort),
+          },
+          assembled: undefined,
+        })
         this.ctx.get('agentPresets')?.composeFrom(agentCtx, owner.ctx)
         prover.install(agentCtx, {
           agent,
@@ -883,6 +892,14 @@ export default class ProofRunService extends Service {
       setup: agentCtx => {
         const agent = agentCtx.agent
         if (agent === undefined) throw new Error('DSH did not associate the unpublished loss-judge agent')
+        installModelSelection(agentCtx, {
+          current: {
+            provider: record.snapshot.config.search.provider,
+            model: record.snapshot.config.search.model,
+            reasoningEffort: ReasoningEffortId(record.snapshot.config.search.reasoningEffort),
+          },
+          assembled: undefined,
+        })
         this.ctx.get('agentPresets')?.composeFrom(agentCtx, owner.ctx)
         capture = loss.installJudge?.(agentCtx, {
           agent,
@@ -985,6 +1002,14 @@ export default class ProofRunService extends Service {
       setup: agentCtx => {
         const agent = agentCtx.agent
         if (agent === undefined) throw new Error('DSH did not associate the unpublished reflector agent')
+        installModelSelection(agentCtx, {
+          current: {
+            provider: record.snapshot.config.search.provider,
+            model: record.snapshot.config.search.model,
+            reasoningEffort: ReasoningEffortId(record.snapshot.config.search.reasoningEffort),
+          },
+          assembled: undefined,
+        })
         capture = optimizer.install(agentCtx, {
           agent,
           parameters,

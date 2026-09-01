@@ -27,6 +27,8 @@
 
 第一版 Runtime 不接受外部 Checkout 路径。完成来源与许可证门禁后，把适配后的 Case 提交到 `benchmarks/`，确认 `chip_proof_cases` 能列出其精确 id，并用 `/chip_proof <case-id>` 启动每个实验条件。每次调用都会物化新的 Run Baseline，因此不同 Run 不会继承旧证明状态。
 
+所有条件必须固定相同的 Provider、Model 和 Adapter reasoning effort。FDIV 对比使用 `deepseek-official`、`deepseek-v4-flash` 和 `max`；Runtime 会把该强度独立应用并记录到 Prover、Loss Judge 和 Reflector Session。
+
 ## 最小运行矩阵
 
 | 条件 | Prover | Loss | Optimizer | Rollouts | 下一父状态策略 |

@@ -27,6 +27,8 @@ The adapter is control-plane metadata, not a new proof input: it names the initi
 
 The first-release Runtime does not accept an external checkout path. After provenance and licensing are complete, commit the adapted Case under `benchmarks/`, verify that `chip_proof_cases` lists its exact id, and start every condition with `/chip_proof <case-id>`. Each invocation materializes a fresh Run baseline, so Runs cannot inherit prior proof state.
 
+Pin the same provider, model, and adapter reasoning effort for every condition. The FDIV comparison uses `deepseek-official`, `deepseek-v4-flash`, and `max`; the Runtime records and applies that effort independently to Prover, Loss Judge, and Reflector sessions.
+
 ## Minimum run matrix
 
 | Condition | Prover | Loss | Optimizer | Rollouts | Next-parent policy |

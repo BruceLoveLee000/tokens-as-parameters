@@ -1,5 +1,5 @@
 import { constants } from 'node:fs'
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
@@ -178,6 +178,17 @@ export function parseNamedAxiomAudits(output: string): Map<string, string[]> {
   return audits
 }
 
+export function leanDependencyCacheKey(resolvedCase: ResolvedCase): string {
+  const lockedInputs = resolvedCase.lockedInputs
+    .filter(input => /(?:lakefile\.lean|lake-manifest\.json|lean-toolchain)$/.test(input.path))
+    .map(input => ({ path: input.path, sha256: input.sha256 }))
+    .sort((left, right) => left.path.localeCompare(right.path))
+  const externalDependencies = resolvedCase.manifest.externalDependencies
+    .map(dependency => ({ name: dependency.name, commit: dependency.commit }))
+    .sort((left, right) => left.name.localeCompare(right.name))
+  return sha256(JSON.stringify({ schemaVersion: 1, lockedInputs, externalDependencies }))
+}
+
 export class LeanVerifier implements ProofVerifier {
   readonly id = 'lean'
 
@@ -186,10 +197,18 @@ export class LeanVerifier implements ProofVerifier {
   async prepareBaselineEnvironment(
     resolvedCase: ResolvedCase,
     worktree: string,
+    sharedCacheRoot: string,
     signal?: AbortSignal,
   ): Promise<void> {
     const argv = resolvedCase.manifest.lean.dependencyCacheArgv
     if (argv === undefined) return
+    const packages = join(
+      resolveInside(worktree, resolvedCase.manifest.lean.workingDirectory),
+      '.lake',
+      'packages',
+    )
+    const sharedPackages = this.sharedPackagesCache(sharedCacheRoot, resolvedCase)
+    await this.copyPackagesCache(sharedPackages, packages, signal)
     const receipt = await this.runner.run({
       argv,
       cwd: resolveInside(worktree, resolvedCase.manifest.lean.workingDirectory),
@@ -200,6 +219,7 @@ export class LeanVerifier implements ProofVerifier {
     if (receipt.exitCode !== 0 || receipt.signal !== null) {
       throw new Error(`Lean dependency cache preparation failed: ${receipt.stderr || receipt.stdout}`)
     }
+    await this.copyPackagesCache(packages, sharedPackages, signal)
   }
 
   async prepareRunEnvironment(
@@ -216,17 +236,7 @@ export class LeanVerifier implements ProofVerifier {
     )
     const target = this.runPackagesCache(runDirectory)
     await rm(target, { recursive: true, force: true })
-    try {
-      await mkdir(resolve(target, '..'), { recursive: true })
-      await cp(source, target, {
-        recursive: true,
-        errorOnExist: true,
-        force: false,
-        mode: constants.COPYFILE_FICLONE,
-      })
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
+    await this.copyPackagesCache(source, target, signal)
     signal?.throwIfAborted()
   }
 
@@ -244,17 +254,7 @@ export class LeanVerifier implements ProofVerifier {
       'packages',
     )
     await rm(target, { recursive: true, force: true })
-    try {
-      await mkdir(resolve(target, '..'), { recursive: true })
-      await cp(source, target, {
-        recursive: true,
-        errorOnExist: true,
-        force: false,
-        mode: constants.COPYFILE_FICLONE,
-      })
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
+    await this.copyPackagesCache(source, target, signal)
     signal?.throwIfAborted()
   }
 
@@ -477,6 +477,50 @@ export class LeanVerifier implements ProofVerifier {
 
   private runPackagesCache(runDirectory: string): string {
     return join(runDirectory, 'verifier-cache', this.id, 'packages')
+  }
+
+  private sharedPackagesCache(sharedCacheRoot: string, resolvedCase: ResolvedCase): string {
+    return join(sharedCacheRoot, '.verifier-cache', this.id, leanDependencyCacheKey(resolvedCase), 'packages')
+  }
+
+  private async copyPackagesCache(source: string, target: string, signal?: AbortSignal): Promise<void> {
+    try {
+      await access(source)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+    try {
+      await access(target)
+      return
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    signal?.throwIfAborted()
+    await mkdir(resolve(target, '..'), { recursive: true })
+    const fastCopyArgv = process.platform === 'darwin'
+      ? ['cp', '-cR', source, target]
+      : process.platform === 'linux'
+        ? ['cp', '--reflink=auto', '-R', source, target]
+        : undefined
+    if (fastCopyArgv !== undefined) {
+      const receipt = await this.runner.run({
+        argv: fastCopyArgv,
+        cwd: resolve(target, '..'),
+        timeoutMs: 30 * 60_000,
+        maxOutputBytes: 2_000_000,
+        ...(signal === undefined ? {} : { signal }),
+      })
+      if (receipt.exitCode === 0 && receipt.signal === null) return
+      signal?.throwIfAborted()
+      await rm(target, { recursive: true, force: true })
+    }
+    await cp(source, target, {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+      mode: constants.COPYFILE_FICLONE,
+    })
   }
 
   private async changedPathsSince(

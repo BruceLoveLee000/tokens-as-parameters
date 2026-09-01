@@ -55,6 +55,8 @@ Launch DSH from this checkout so the default Case catalog resolves to `./benchma
 
 The integration translates this convention into the model-facing `chip_proof({ case_id })` tool. The Runtime accepts only an exact registered Case id—not an arbitrary workspace path. It checks that the Case is committed, copies it to `.tokens-as-parameters/runs/<runId>/workspace`, validates the locked hashes again, and initializes a new Git baseline before any Prover starts. The official DSH Session UI remains the trajectory surface; the Bundle additionally persists `run.json` and `events.jsonl` for every Run.
 
+Lean dependency packages are reused only through a local cache fingerprinted by the locked Lake manifest, toolchain, lakefile, and declared external dependency commits. Proof build outputs are never shared across Runs.
+
 See the [Core architecture and Optimizer provider contract](docs/en/architecture/token-optimization-core.md), [Bundle guide](packages/bundle/formal-proof/README.md), [formal architecture](docs/en/architecture/dsh-formal-proof-bundle.md), and [FDIV reproduction protocol](experiments/fdiv-reproduction/README.md).
 
 ## Next research work

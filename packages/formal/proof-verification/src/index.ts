@@ -7,6 +7,7 @@ export interface ProofVerifier {
   prepareBaselineEnvironment?(
     resolvedCase: ResolvedCase,
     worktree: string,
+    sharedCacheRoot: string,
     signal?: AbortSignal,
   ): Promise<void>
   prepareRunEnvironment?(

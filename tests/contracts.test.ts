@@ -76,6 +76,7 @@ test('case manifest may declare a deterministic dependency-cache preparation com
 test('experiment configuration supplies reproducible defaults without a workspace path', () => {
   const parsed = StartProofExperimentSchema.parse({ caseId: 'lean-positive' })
   assert.equal(parsed.search.rollouts, 2)
+  assert.equal(parsed.search.reasoningEffort, 'max')
   assert.equal(parsed.search.reflection.enabled, true)
   assert.equal(parsed.search.maxStepsPerLane, 200)
   assert.equal(parsed.search.reflection.maxSteps, 32)

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { access, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -30,6 +30,12 @@ class FakeRunner implements CommandRunner {
 
   async run(spec: CommandSpec): Promise<CommandReceipt> {
     this.calls.push(spec)
+    if (spec.argv[0] === 'cp') {
+      const source = spec.argv.at(-2)
+      const target = spec.argv.at(-1)
+      if (source === undefined || target === undefined) throw new Error('invalid copy command')
+      await cp(source, target, { recursive: true })
+    }
     const audit = spec.argv.includes('lean')
     const changed = spec.argv[0] === 'git' && spec.argv[1] === 'diff'
     const show = spec.argv[0] === 'git' && spec.argv[1] === 'show'
@@ -225,10 +231,27 @@ test('Lean baseline preparation runs only the manifest-declared cache command', 
   resolved.manifest.lean.dependencyCacheArgv = ['lake', 'exe', 'cache', 'get']
   const runner = new FakeRunner()
 
-  await new LeanVerifier(runner).prepareBaselineEnvironment(resolved, root)
+  const sharedCacheRoot = await mkdtemp(join(tmpdir(), 'tap-lean-shared-cache-'))
+  await new LeanVerifier(runner).prepareBaselineEnvironment(resolved, root, sharedCacheRoot)
 
   assert.deepEqual(runner.calls.map(call => call.argv), [['lake', 'exe', 'cache', 'get']])
   assert.equal(runner.calls[0]?.cwd, join(root, 'formal'))
+})
+
+test('Lean baseline preparation hydrates and publishes a dependency-fingerprinted shared cache', async () => {
+  const { root, resolved } = await fixture()
+  resolved.manifest.lean.dependencyCacheArgv = ['lake', 'exe', 'cache', 'get']
+  const sharedCacheRoot = await mkdtemp(join(tmpdir(), 'tap-lean-shared-cache-'))
+  const sourcePackage = join(root, 'formal', '.lake', 'packages', 'mathlib', 'Mathlib.lean')
+  await mkdir(join(sourcePackage, '..'), { recursive: true })
+  await writeFile(sourcePackage, 'dependency\n', 'utf8')
+
+  const verifier = new LeanVerifier(new FakeRunner())
+  await verifier.prepareBaselineEnvironment(resolved, root, sharedCacheRoot)
+  await rm(join(root, 'formal', '.lake', 'packages'), { recursive: true, force: true })
+  await verifier.prepareBaselineEnvironment(resolved, root, sharedCacheRoot)
+
+  assert.equal(await readFile(sourcePackage, 'utf8'), 'dependency\n')
 })
 
 test('Lean run cache reuses dependencies while keeping worktrees isolated', async () => {

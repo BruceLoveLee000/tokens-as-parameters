@@ -54,6 +54,7 @@ export function apply(ctx: Context): void {
       case_id: { type: 'string', required: true, description: 'Exact case id returned by chip_proof_cases.' },
       provider: { type: 'string', description: 'DSH model provider, default deepseek-official.' },
       model: { type: 'string', description: 'Model id, default deepseek-v4-flash.' },
+      reasoning_effort: { type: 'string', description: 'Adapter-owned reasoning effort pinned on every Prover, Loss Judge, and Reflector request; default max.' },
       prover: { type: 'string', description: 'Registered Prover Agent provider id, default formal-code-agent.' },
       loss: { type: 'string', description: 'Registered Loss provider id, default lean-dual-check. Use lean-rule-only for the black-box-only ablation.' },
       optimizer: { type: 'string', description: 'Registered token Optimizer id, default relative-reflection.' },
@@ -83,6 +84,7 @@ export function apply(ctx: Context): void {
       const search = {
         ...(args.provider === undefined ? {} : { provider: args.provider }),
         ...(args.model === undefined ? {} : { model: args.model }),
+        ...(args.reasoning_effort === undefined ? {} : { reasoningEffort: args.reasoning_effort }),
         ...(args.prover === undefined ? {} : { prover: args.prover }),
         ...(args.loss !== undefined
           ? { loss: args.loss }
