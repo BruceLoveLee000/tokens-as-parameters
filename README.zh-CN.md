@@ -61,7 +61,8 @@ Lean 依赖包只能通过本地共享缓存复用；缓存键由锁定的 Lake 
 
 ## 下一步研究工作
 
-- 使用打包后的 Bundle 完整复跑已完成许可证确认的 FDIV R14 Checkpoint；
+- 在更难且能实际触发 Reflector 的已授权基线上重复对齐 FDIV 实验；
+- 在宣称第三方可复现前，发布一个可再分发的证明 Case；
 - 增加面向未来 Reward 的上下文整合，而不是普通摘要；
 - 对 Prover、Loss、Optimizer、父状态选择、反思和持久 Insight 执行等预算消融实验。
 - 仅在实验链路稳定后增加用户工作区生产模式（[Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)）。

@@ -4,7 +4,7 @@ English | [简体中文](README.zh-CN.md)
 
 ## Status
 
-`PENDING-RUN`. The DSH Bundle and keyless mechanism tests are implemented. The historical FDIV 14/14 trajectory has not yet been reproduced through the packaged Bundle, so this document defines the evidence gate rather than claiming a result.
+`LOCAL-PARITY-PILOT`. The DSH Bundle locally reproduced 14/14 on the same frozen 9/14 Case as SpecRefine and completed Single, Independent, Rule-only, and Dual Loss conditions. The full Case, proof, and Session trace remain in a restricted local evidence store because of licensing boundaries, so this is not yet a third-party downloadable reproduction. See the [aligned ablation report](results/2026-09-02-parity-pilot/README.md).
 
 ## Hypothesis
 

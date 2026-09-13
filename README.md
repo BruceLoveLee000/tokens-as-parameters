@@ -61,7 +61,8 @@ See the [Core architecture and Optimizer provider contract](docs/en/architecture
 
 ## Next research work
 
-- Run the licensed FDIV R14 checkpoint end to end through the packaged Bundle.
+- Repeat the aligned FDIV study on a harder licensed baseline where the Reflector actually runs.
+- Publish a redistributable proof Case before claiming third-party reproduction.
 - Add reward-oriented context consolidation rather than generic summarization.
 - Execute equal-budget ablations across Prover, Loss, Optimizer, parent-selection, reflection, and persistent-Insight conditions.
 - Add user-workspace production mode only after the experiment path is stable ([Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)).

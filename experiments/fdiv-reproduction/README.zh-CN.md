@@ -4,7 +4,7 @@
 
 ## 状态
 
-`PENDING-RUN`。DSH Bundle 与无密钥机制测试已经实现；历史 FDIV 14/14 轨迹尚未通过打包后的 Bundle 复现。因此本文定义证据门，不声称已经获得实验结果。
+`LOCAL-PARITY-PILOT`。DSH Bundle 已在与 SpecRefine 共享的冻结 9/14 Case 上本地复现 14/14，并完成 Single、Independent、Rule-only 与 Dual Loss 条件。完整 Case、Proof 和 Session Trace 因许可证边界仍只保存在本地受限证据库，因此尚不是第三方可下载复现。参见[对齐消融报告](results/2026-09-02-parity-pilot/README.zh-CN.md)。
 
 ## 假设
 

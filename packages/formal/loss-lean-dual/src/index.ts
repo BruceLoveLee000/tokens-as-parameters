@@ -180,7 +180,8 @@ export function evaluateLeanProofLoss(
       buildPassed,
       finalAccepted: receipt.finalAccepted,
       candidateMatches,
-      whiteboxApproved: input.whitebox?.approved ?? !requiresJudge,
+      whiteboxReviewed: input.whitebox !== undefined,
+      whiteboxApproved: input.whitebox?.approved ?? false,
     },
   }
 }

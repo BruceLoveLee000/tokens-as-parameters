@@ -75,6 +75,7 @@ Package Manifest 中的 `dsh.bundle.patch` 会组合十二个运行时插件：
 
 - Prover 文本永远不构成证明证据；
 - `lean-dual-check` 完整拥有一个不可变 Candidate Commit 的有序评估：先执行 Lean 锁定/Signature/Hygiene/Build/Axiom 检查，再执行只读白盒 Judge；`lean-rule-only` 是显式的纯黑盒消融；
+- Loss 指标区分 `whiteboxReviewed` 与 `whiteboxApproved`；包括 Rule-only 消融在内，没有执行 Judge 永远不会被记成已批准；
 - `ProofReceipt` 与 `ProofLossReport` 都绑定精确 Candidate Commit。最终 `PROVED` 要求 Commit 匹配的 `solved` Loss 关闭包括顶层定理在内的全部 Obligation；Runtime 不会在该 Loss 之后重复执行 Lean Build；
 - Lane 通过 Git Worktree 与 DSH Session 隔离；系统不自动合并。Optimizer 选择每条下一父状态，语义整合是普通 Prover 任务，之后经过同一 Loss；
 - Run 会在证明被接受、用户取消、总 Token 或总时间耗尽、或出现不可恢复的基础设施错误时停止；无进展和路线相似属于需要保留的实验行为，只要预算仍在就不会触发停止；
@@ -94,6 +95,6 @@ Formal Prover Agent 注册 `task.memory`、`task.plan` 以及每个 Rollout 的 
 
 ## 当前限制
 
-打包后的机制已经具备单元测试与契约测试，但历史 FDIV 14/14 结果尚未通过这个 Bundle 重新运行。必须遵循版本化的[复现实验协议](../../../experiments/fdiv-reproduction/README.zh-CN.md)，并阅读[能力回退审查](../../../docs/zh-CN/architecture/fdiv-capability-review.md)；在证据门完成前，不得把旧结果表述为 Bundle 已复现。
+打包后的机制已经具备单元测试与契约测试，并从与 SpecRefine 控制组相同的冻结 9/14 FDIV Warm Start 本地复现了 14/14。不过所有 Run 都在 Epoch 1 完成，因此本先导实验验证的是 Prover/Runtime 链路，而不是 Optimizer 有效性。受许可证约束，完整 Case、Proof 与 Session Trace 仍是本地受限证据；这还不是第三方可下载复现。参见版本化的[复现实验协议与报告](../../../experiments/fdiv-reproduction/README.zh-CN.md)和[能力回退审查](../../../docs/zh-CN/architecture/fdiv-capability-review.md)。
 
 本版本没有生产工作区模式。用户指定仓库、脏工作区治理和显式结果 Apply 由 [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4) 跟踪。

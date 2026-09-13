@@ -11,7 +11,7 @@ import {
   RUN_SCHEMA_VERSION,
   type ProofReceipt,
 } from '@tokens-as-parameters/proof-contracts'
-import { LeanDualCheckLoss, evaluateLeanProofLoss } from '@tokens-as-parameters/loss-lean-dual'
+import { LeanDualCheckLoss, LeanRuleOnlyLoss, evaluateLeanProofLoss } from '@tokens-as-parameters/loss-lean-dual'
 
 const usage = {
   inputTokens: 0,
@@ -124,6 +124,8 @@ test('dual Loss requires white-box approval on every rollout and preserves seman
   }, true)
   assert.equal(missingJudge.verdict, 'invalid')
   assert.equal(missingJudge.candidateStatus, 'INVALID')
+  assert.equal(missingJudge.metrics.whiteboxReviewed, false)
+  assert.equal(missingJudge.metrics.whiteboxApproved, false)
 
   const progress = evaluateLeanProofLoss('lean-dual-check', {
     candidateCommit: 'candidate-1',
@@ -138,6 +140,8 @@ test('dual Loss requires white-box approval on every rollout and preserves seman
   }, true)
   assert.equal(progress.verdict, 'progress')
   assert.equal(progress.candidateStatus, 'VERIFIED')
+  assert.equal(progress.metrics.whiteboxReviewed, true)
+  assert.equal(progress.metrics.whiteboxApproved, true)
 
   const solved = evaluateLeanProofLoss('lean-dual-check', {
     candidateCommit: 'candidate-1',
@@ -170,6 +174,18 @@ test('dual Loss requires white-box approval on every rollout and preserves seman
   }, true)
   assert.equal(staleReceipt.verdict, 'invalid')
   assert.equal(staleReceipt.metrics.candidateMatches, false)
+})
+
+test('rule-only Loss does not report an omitted white-box review as approved', () => {
+  const evaluation = new LeanRuleOnlyLoss().score({
+    candidateCommit: 'candidate-1',
+    receipt: receipt(),
+    baselineClosed: 0,
+  })
+
+  assert.equal(evaluation.verdict, 'progress')
+  assert.equal(evaluation.metrics.whiteboxReviewed, false)
+  assert.equal(evaluation.metrics.whiteboxApproved, false)
 })
 
 test('dual Loss owns verifier then white-box evaluation for one immutable candidate', async () => {

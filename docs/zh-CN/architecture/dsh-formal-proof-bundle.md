@@ -158,6 +158,6 @@ Claim Scope 必须显式。`lean-model-vs-spec` 在缺少独立版本化 RTL-to-
 
 本次重构不是只和旧 Package API 对比，而是对照了成功的 FDIV 9/14 到 14/14 辅助实验轨迹。详细[能力回退审查](fdiv-capability-review.md)区分了保留能力、主动收缩的范围，以及尚未复现或仍缺失的能力。
 
-结论必须保持边界：当前实现已经暴露预期的 Prover/Loss/Optimizer 消融接缝，保留 Verified 与 Exploratory 分支，并允许反思选择下一父状态而不自动合并。它还不能宣称与历史系统证据等价：FDIV 14/14 仍需通过这一精确 Bundle 完整复跑，认证 `DISPROVED` 链路也仍缺失。
+结论必须保持边界：当前实现已经暴露预期的 Prover/Loss/Optimizer 消融接缝，保留 Verified 与 Exploratory 分支，并允许反思选择下一父状态而不自动合并。对齐的本地先导实验已经从与 SpecRefine 相同的冻结 9/14 Warm Start 复现 FDIV 14/14，证明该 Case 上的 Prover/Runtime 能力对齐；但全部 Run 都在 Epoch 1 完成，因此尚未证明 Optimizer 有效性，完整证据又受许可证约束，因此也不是第三方公开复现。认证 `DISPROVED` 链路同样仍缺失。
 
 生产工作区行为——脏 Git 状态、非 Git 初始化、命名空间 Ref、Candidate Patch Apply 与清理——有意推迟到 [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)，避免用一个定义不完整的第二模式削弱实验契约。

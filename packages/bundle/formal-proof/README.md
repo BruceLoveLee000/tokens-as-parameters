@@ -100,6 +100,7 @@ Every Prover, Reflector, and Reviewer is an official DSH Session. The native con
 
 - Prover text is never proof evidence.
 - `lean-dual-check` owns the ordered evaluation of one immutable Candidate Commit: Lean locked/signature/hygiene/build/axiom checks followed by a read-only white-box Judge. `lean-rule-only` is the explicit black-box-only ablation.
+- Loss metrics distinguish `whiteboxReviewed` from `whiteboxApproved`; an omitted Judge is never recorded as an approval, including in Rule-only ablations.
 - `ProofReceipt` and `ProofLossReport` both bind the exact Candidate Commit. A final `PROVED` requires a commit-matched `solved` Loss that closes every declared obligation, including the top theorem; Runtime does not repeat the Lean build after that Loss.
 - Lanes are isolated by Git Worktree and DSH Session. There is no automatic consolidation. The Optimizer chooses each next parent; semantic integration is an ordinary Prover task followed by the same Loss.
 - A run stops on accepted proof, user cancellation, total-token or wall-time exhaustion, or an unrecoverable infrastructure error. Lack of progress and route similarity remain observable behavior; they do not stop an otherwise funded experiment.
@@ -119,6 +120,6 @@ Model steps are the primary depth budget: 200 per Prover, 24 per white-box Judge
 
 ## Current limitation
 
-The packaged mechanism has unit and contract coverage, but the historical FDIV 14/14 result has not yet been rerun through this Bundle. Follow the versioned [reproduction protocol](../../../experiments/fdiv-reproduction/README.md) and read the [capability regression review](../../../docs/en/architecture/fdiv-capability-review.md); do not cite the old result as a Bundle reproduction until its evidence gate is complete.
+The packaged mechanism has unit and contract coverage and locally reproduced 14/14 from the same frozen 9/14 FDIV warm start as the SpecRefine control. All Runs completed in Epoch 1, however, so this pilot validates the Prover/Runtime path rather than Optimizer effectiveness. The licensed Case, proof, and Session trace remain restricted local evidence; this is not yet a third-party downloadable reproduction. See the versioned [reproduction protocol and report](../../../experiments/fdiv-reproduction/README.md) and the [capability regression review](../../../docs/en/architecture/fdiv-capability-review.md).
 
 This release has no production workspace mode. User-selected repositories, dirty-worktree handling, and explicit result application are tracked in [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4).

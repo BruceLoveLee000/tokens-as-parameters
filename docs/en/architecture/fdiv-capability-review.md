@@ -35,7 +35,7 @@ The comparison concerns mechanisms that contributed to the result. It does not c
 | richer Proof Capsule integration from multiple lanes | redesigned | full candidate commits remain branches; Optimizer can inspect and schedule semantic integration without a standalone Capsule schema |
 | certified counterexample and `DISPROVED` path | **missing** | model-proposed counterexamples cannot produce a terminal refutation verdict |
 | proof-interface rebaseline workflow for Lean kernel recursion/pathological reducibility | **missing** | the successful experiment required a separately versioned proof-facing interface candidate; the Bundle does not automate this governance path |
-| historical case schema migration and end-to-end FDIV 14/14 replay | **not yet demonstrated** | unit/contract tests are green, but empirical parity remains an open reproduction gate |
+| aligned Case migration and FDIV 9/14-to-14/14 Bundle replay | **locally demonstrated** | all four new-framework conditions reached 14/14; restricted evidence and an Epoch-1 finish limit the claim to Prover/Runtime parity, not public reproduction or Optimizer effectiveness |
 
 ## Deferred semantic coverage
 

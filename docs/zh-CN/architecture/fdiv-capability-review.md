@@ -35,7 +35,7 @@
 | 跨多路的丰富 Proof Capsule 整合 | 重设计 | 完整 Candidate Commit 保留为分支；Optimizer 可检查并调度语义整合，不依赖独立 Capsule Schema |
 | 认证 Counterexample 与 `DISPROVED` 链路 | **缺失** | 模型提出的反例不能生成终止性反驳结论 |
 | 面向 Lean Kernel Deep Recursion/可归约性病态的证明接口 Rebaseline | **缺失** | 历史成功实验使用了独立版本化的新证明接口；Bundle 尚未自动化该治理流程 |
-| 历史 Case Schema 迁移与 FDIV 14/14 端到端复跑 | **尚未证明** | 单测与契约检查已通过，但经验等价仍需复现实验 |
+| 对齐 Case 迁移与 FDIV 9/14 到 14/14 Bundle 复跑 | **已在本地证明** | 新框架四个条件均达到 14/14；受限证据与 Epoch 1 结束把结论限制为 Prover/Runtime 对齐，不代表公开复现或 Optimizer 有效性 |
 
 ## 延后处理的语义覆盖
 
