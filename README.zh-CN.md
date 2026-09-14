@@ -59,10 +59,16 @@ Lean 依赖包只能通过本地共享缓存复用；缓存键由锁定的 Lake 
 
 进一步阅读：[Core 架构与 Optimizer Provider 契约](docs/zh-CN/architecture/token-optimization-core.md)、[Bundle 指南](packages/bundle/formal-proof/README.zh-CN.md)、[形式化证明架构](docs/zh-CN/architecture/dsh-formal-proof-bundle.md)和 [FDIV 复现实验协议](experiments/fdiv-reproduction/README.zh-CN.md)。
 
+第一个公开的端到端 Optimizer Showcase 从零开始，经过 7 个 Epoch 和 6 次比较式反思，
+关闭了 FDIV 顶层定理。可阅读具有明确结论边界的
+[案例结果](experiments/fdiv-raw-top1-showcase/results/2026-09-13-deepseek-v4-flash/README.zh-CN.md)，
+并检查可再分发的 Case 和参考证明。该单次 Run 是机制证据，不是新框架优于 SpecRefine
+的统计结论。
+
 ## 下一步研究工作
 
-- 在更难且能实际触发 Reflector 的已授权基线上重复对齐 FDIV 实验；
-- 在宣称第三方可复现前，发布一个可再分发的证明 Case；
+- 在公开 raw-top1 FDIV Case 上进行条件对齐、多 Seed 的重复消融实验；
+- 发布经过脱敏的事件级证据，同时避免泄漏本机路径或凭据；
 - 增加面向未来 Reward 的上下文整合，而不是普通摘要；
 - 对 Prover、Loss、Optimizer、父状态选择、反思和持久 Insight 执行等预算消融实验。
 - 仅在实验链路稳定后增加用户工作区生产模式（[Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)）。

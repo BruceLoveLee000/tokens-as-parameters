@@ -1,0 +1,16 @@
+FDIV raw-top1 benchmark
+Copyright 2026 Tokens as Parameters contributors.
+
+The benchmark's original Lean, RTL, Python, shell, and documentation files
+were produced through AI-assisted development commissioned and reviewed by
+Bruce Lee and are distributed under Apache License 2.0.
+
+The benchmark declares FloatSpec as an external Git dependency and does not
+vendor it. FloatSpec is distributed by the Beneficial AI Foundation under
+Apache License 2.0:
+
+  https://github.com/Beneficial-AI-Foundation/FloatSpec
+  commit eef09dc52b20c00c378e3ee25fabdac23bf65ac9
+
+The names IEEE and IEEE 754 identify a technical standard and do not imply
+endorsement by IEEE.

@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "1.0",
+  "caseId": "fdiv-r14-raw-top1-audited-rebaseline-v1",
+  "claimScope": "lean-model-vs-spec",
+  "description": "From-zero FDIV proof-architecture benchmark with one top-level obligation on the audited second proof-interface rebaseline.",
+  "editableFiles": [
+    "formal/FdivProof.lean"
+  ],
+  "lockedInputs": [
+    {
+      "path": "formal/FdivSpec.lean",
+      "sha256": "d43d2301b69f39fd425dc5d0c91a2bf84e3645c2ddf31ae1c6297a3af14ce8b1"
+    },
+    {
+      "path": "formal/FdivModel.lean",
+      "sha256": "537da90cc152449cc7b475d707821536789efc4fde7335813f820affb3a84f66"
+    },
+    {
+      "path": "formal/FloatSpecBridge.lean",
+      "sha256": "920b9fa7cf6792efdb7cd8604059247bbc5b380e52f80760ab19c5e4cc97771f"
+    },
+    {
+      "path": "formal/TruthTable.lean",
+      "sha256": "dbeac51b0e49ebfd413e2d491bc9014888609d928992c37e69997551938b9c48"
+    },
+    {
+      "path": "formal/lakefile.lean",
+      "sha256": "44c517a6d1f35cfdeb64c97f82ff2fadff19ece66448be53ad6b7238e3c785a3"
+    },
+    {
+      "path": "formal/lake-manifest.json",
+      "sha256": "d619e243f1e39a27ffd1d9f205955b919eacf760321c127e04f8000a05177836"
+    },
+    {
+      "path": "formal/lean-toolchain",
+      "sha256": "651c8accb402b0c071cd336e9d3dc0a55516b1bfb434ddc4801f14936785b1d2"
+    },
+    {
+      "path": "rtl/fdiv.v",
+      "sha256": "c24fa3a85d99a66d7962c11d971d446b7b385dcb050f456049e6c4a7776b1fe3"
+    },
+    {
+      "path": "docs/fdiv_arch.md",
+      "sha256": "4f050ce57290515dcfa6b84b0ad983d25fdb9adc7a66399cc1dd3d6edd020c6c"
+    },
+    {
+      "path": "docs/fdiv_spec.md",
+      "sha256": "cdd74362d644a40bd1e133b46386cb8150bbba14b88f64dff2dacc4b0811a064"
+    },
+    {
+      "path": "docs/reference_model.py",
+      "sha256": "5926203c62733f35e0952cf21a3d447774319a63df1ab0eb3d2896c2eaaca3ac"
+    },
+    {
+      "path": "tests/FixedRegression.lean",
+      "sha256": "402829465fc648b66501459d0085dbd921da64170e95341472ecb9e06c2e33da"
+    },
+    {
+      "path": "tests/check_all.sh",
+      "sha256": "5863895f4c8e7f452f1f18fb236ab089b9eec502a0d30c41dc036f1afb1fa0e6"
+    },
+    {
+      "path": "tests/check_rtl_oracle.py",
+      "sha256": "ab15cd59c514a42c6d538f32607f56a3261c6fe026312227bbe782fa6532c4f9"
+    },
+    {
+      "path": "tests/fdiv_oracle_tb.v",
+      "sha256": "7ac3aa2ccf697007686391511d0f0fccf018a81921b29f927e92e4b2629c93a5"
+    }
+  ],
+  "externalDependencies": [],
+  "lean": {
+    "workingDirectory": "formal",
+    "proofFile": "formal/FdivProof.lean",
+    "theoremFile": "formal/FdivProof.lean",
+    "module": "FdivProof",
+    "theoremName": "rtlEquivSpec",
+    "theoremSignatureSha256": "b68d1d991a5e0fb586ab1be0315190d8f28486e34143f25e7a8ffb7852376287",
+    "obligations": [
+      "rtlEquivSpec"
+    ],
+    "dependencyCacheArgv": [
+      "lake",
+      "exe",
+      "cache",
+      "get"
+    ],
+    "buildArgv": [
+      "lake",
+      "build"
+    ],
+    "allowedAxioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ]
+  },
+  "provenance": {
+    "sourceRepository": "local research archive",
+    "sourceCommit": "22fdb9ad12c83d2196dfa581e277f46e3dfb12fa",
+    "license": "Apache-2.0; see LICENSE and PROVENANCE.md",
+    "notes": "AI-assisted original work commissioned, reviewed, and contributed by Bruce Lee. Composes the audited second FdivSpec rebaseline with a from-zero one-theorem proof shell. The known completed proof, the fourteen-obligation decomposition, and FdivProofAPI are excluded."
+  }
+}

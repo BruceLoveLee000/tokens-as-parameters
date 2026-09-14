@@ -1,0 +1,4 @@
+{
+  "expectedVerdict": "PROVED",
+  "reason": "A separately published reference proof closes the frozen top theorem and passes Lean-kernel, signature, locked-input, axiom, and white-box checks."
+}

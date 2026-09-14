@@ -59,10 +59,17 @@ Lean dependency packages are reused only through a local cache fingerprinted by 
 
 See the [Core architecture and Optimizer provider contract](docs/en/architecture/token-optimization-core.md), [Bundle guide](packages/bundle/formal-proof/README.md), [formal architecture](docs/en/architecture/dsh-formal-proof-bundle.md), and [FDIV reproduction protocol](experiments/fdiv-reproduction/README.md).
 
+The first public end-to-end Optimizer showcase closed a from-zero FDIV top
+theorem after seven Epochs and six comparative reflections. Read the bounded
+[case-study result](experiments/fdiv-raw-top1-showcase/results/2026-09-13-deepseek-v4-flash/README.md)
+and inspect its redistributable Case and reference proof. This single Run is
+mechanism evidence, not a statistical claim that the framework outperforms
+SpecRefine.
+
 ## Next research work
 
-- Repeat the aligned FDIV study on a harder licensed baseline where the Reflector actually runs.
-- Publish a redistributable proof Case before claiming third-party reproduction.
+- Repeat the public raw-top1 FDIV study under aligned ablations and multiple seeds.
+- Publish sanitized event-level evidence without leaking local paths or credentials.
 - Add reward-oriented context consolidation rather than generic summarization.
 - Execute equal-budget ablations across Prover, Loss, Optimizer, parent-selection, reflection, and persistent-Insight conditions.
 - Add user-workspace production mode only after the experiment path is stable ([Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)).

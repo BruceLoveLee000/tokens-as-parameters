@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1.0",
+  "createdAt": "2026-09-13T00:00:00.000Z",
+  "sources": {
+    "rawProofShell": {
+      "caseId": "fdiv-may-v10-array28-fixed-raw-top1",
+      "sourceCommit": "907f289f49f87103da9704b37c205d4579b42eb4"
+    },
+    "auditedRebaseline": {
+      "caseId": "fdiv-may-v10-array28-fixed-r14-14of14-proofapi-v2",
+      "repositoryCommit": "22fdb9ad12c83d2196dfa581e277f46e3dfb12fa",
+      "historicalRunId": "fdiv-may-v10-array28-fixed-r14-8of14-proofapi-20260823094019-030aafc6",
+      "historicalEpoch": 6
+    }
+  },
+  "baseline": {
+    "closedObligations": 0,
+    "totalObligations": 1,
+    "openSorryDeclarations": 1,
+    "expectedVerdict": "PROVED"
+  },
+  "sha256": {
+    "auditedRebaselineFdivSpec": "d43d2301b69f39fd425dc5d0c91a2bf84e3645c2ddf31ae1c6297a3af14ce8b1",
+    "fdivModel": "537da90cc152449cc7b475d707821536789efc4fde7335813f820affb3a84f66",
+    "floatSpecBridge": "920b9fa7cf6792efdb7cd8604059247bbc5b380e52f80760ab19c5e4cc97771f",
+    "rtlFdiv": "c24fa3a85d99a66d7962c11d971d446b7b385dcb050f456049e6c4a7776b1fe3",
+    "emptyTopProof": "ac8e954f6f862f0c2f9d141f554bd2215ef04a6f617f1135703de29469e50cd8"
+  },
+  "assurance": {
+    "knownSolution": "The same locked Model, audited Spec, and top theorem were previously closed by a 14/14 Kernel-checked candidate; that proof is not included in this Case.",
+    "solutionLeakage": "No completed target proof, fourteen-obligation decomposition, FdivProofAPI, prior helper frontier, route recommendation, or difficulty label is included.",
+    "proofSurfacePolicy": "The Agent may revise FdivProof.lean and add verifier-audited proof-side Lean modules. Spec, Model, FloatSpec bridge, RTL, theorem signature, and public obligation remain locked.",
+    "specRewrite": "Source-reviewed projection inlining with historical executable regression evidence; no universal old/new extensional theorem is claimed.",
+    "claimScope": "LEAN_MODEL_VS_SPEC_ONLY"
+  }
+}
