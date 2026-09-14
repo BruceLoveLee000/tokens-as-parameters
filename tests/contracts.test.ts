@@ -15,7 +15,7 @@ import {
   FORMAL_PROVER_MEMORY_PARAMETER_ID,
   FORMAL_PROVER_PLAN_PARAMETER_ID,
   formalProverRouteParameterId,
-} from '@tokens-as-parameters/proof-roles'
+} from '@tokens-as-parameters/prover-code-agent'
 import {
   ProofRunsProjectionSchema,
 } from '@tokens-as-parameters/proof-contracts/dsh-surface'
@@ -44,17 +44,45 @@ function manifest() {
 }
 
 test('case manifest keeps frozen inputs outside the editable surface', () => {
-  assert.equal(CaseManifestSchema.parse(manifest()).lean.buildArgv[0], 'lake')
+  const parsed = CaseManifestSchema.parse(manifest())
+  assert.equal(parsed.lean.buildArgv[0], 'lake')
+  assert.deepEqual(parsed.externalDependencies, [])
   const invalid = manifest()
   invalid.lockedInputs = [{ path: 'Proof.lean', sha256: HASH }]
   assert.equal(CaseManifestSchema.safeParse(invalid).success, false)
 })
 
+test('case manifest locks external proof dependencies by repository revision', () => {
+  const value = manifest()
+  Object.assign(value, {
+    externalDependencies: [{
+      name: 'floating-point-library',
+      root: '../vendor/floating-point-library',
+      commit: 'b'.repeat(40),
+    }],
+  })
+  assert.equal(CaseManifestSchema.parse(value).externalDependencies[0]?.commit, 'b'.repeat(40))
+})
+
+test('case manifest may declare a deterministic dependency-cache preparation command', () => {
+  const value = manifest()
+  value.lean.dependencyCacheArgv = ['lake', 'exe', 'cache', 'get']
+  assert.deepEqual(
+    CaseManifestSchema.parse(value).lean.dependencyCacheArgv,
+    ['lake', 'exe', 'cache', 'get'],
+  )
+})
+
 test('experiment configuration supplies reproducible defaults without a workspace path', () => {
   const parsed = StartProofExperimentSchema.parse({ caseId: 'lean-positive' })
   assert.equal(parsed.search.rollouts, 2)
+  assert.equal(parsed.search.reasoningEffort, 'max')
   assert.equal(parsed.search.reflection.enabled, true)
+  assert.equal(parsed.search.maxStepsPerLane, 200)
+  assert.equal(parsed.search.reflection.maxSteps, 32)
   assert.equal(parsed.search.maxCumulativeTokensPerLane, 20_000_000)
+  assert.equal(parsed.search.prover, 'formal-code-agent')
+  assert.equal(parsed.search.loss, 'lean-dual-check')
   assert.equal(parsed.search.optimizer, 'relative-reflection')
   assert.equal(parsed.search.verifier, 'lean')
   assert.deepEqual(parsed.search.parameterFeedback, { memory: true, plan: true, routes: true })
@@ -150,11 +178,14 @@ test('proof run Web projection is a bounded controller-owned view', () => {
         rolloutId: 'r1',
         sessionId: 'run-1-e2-r1',
         epoch: 2,
+        steps: 12,
         tokens: 42_000,
         obligationsClosed: 1,
         obligationsTotal: 2,
         checkpointable: true,
         finalAccepted: false,
+        lossVerdict: 'progress',
+        candidateStatus: 'VERIFIED',
       }],
     }],
   })

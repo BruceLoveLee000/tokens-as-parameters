@@ -15,7 +15,22 @@ const benchmarkRoot = fileURLToPath(new URL('../benchmarks/', import.meta.url))
 
 test('experiment catalog exposes only complete versioned cases', async () => {
   const cases = await discoverExperimentCases(benchmarkRoot)
-  assert.deepEqual(cases.map(item => item.caseId), ['lean-smoke-positive'])
+  assert.deepEqual(cases.map(item => item.caseId), [
+    'fdiv-r14-raw-top1-audited-rebaseline-v1',
+    'lean-smoke-positive',
+  ])
+  const fdiv = await resolveExperimentCase(
+    benchmarkRoot,
+    'fdiv-r14-raw-top1-audited-rebaseline-v1',
+  )
+  assert.equal(fdiv.catalogPath, 'fdiv-r14-raw-top1-audited-rebaseline-v1')
+  assert.equal(fdiv.claimScope, 'lean-model-vs-spec')
+  assert.deepEqual(fdiv.resolvedCase.manifest.lean.obligations, ['rtlEquivSpec'])
+  assert.deepEqual(fdiv.resolvedCase.manifest.lean.buildArgv, ['lake', 'build'])
+  assert.match(
+    await readFile(join(fdiv.resolvedCase.root, 'formal', 'lakefile.lean'), 'utf8'),
+    /eef09dc52b20c00c378e3ee25fabdac23bf65ac9/,
+  )
   const smoke = await resolveExperimentCase(benchmarkRoot, 'lean-smoke-positive')
   assert.equal(smoke.catalogPath, 'lean-smoke-positive')
   assert.equal(smoke.claimScope, 'lean-model-vs-spec')

@@ -4,14 +4,32 @@ import type { ResolvedCase } from '@tokens-as-parameters/proof-contracts/case-ma
 
 export interface ProofVerifier {
   readonly id: string
+  prepareBaselineEnvironment?(
+    resolvedCase: ResolvedCase,
+    worktree: string,
+    sharedCacheRoot: string,
+    signal?: AbortSignal,
+  ): Promise<void>
+  prepareRunEnvironment?(
+    resolvedCase: ResolvedCase,
+    checkedWorktree: string,
+    runDirectory: string,
+    signal?: AbortSignal,
+  ): Promise<void>
+  hydrateRunEnvironment?(
+    resolvedCase: ResolvedCase,
+    runDirectory: string,
+    worktree: string,
+    signal?: AbortSignal,
+  ): Promise<void>
   check(
     resolvedCase: ResolvedCase,
     worktree: string,
     baselineClosed?: number,
     signal?: AbortSignal,
     baselineCommit?: string,
+    candidateCommit?: string,
   ): Promise<ProofReceipt>
-  consolidate(baseSource: string, candidateSource: string, acceptedUnits: readonly string[]): string
 }
 
 declare module '@deepseek-ai/cordis' {

@@ -14,8 +14,13 @@ async function manifest(path: string): Promise<{
 
 test('workspace publishes independent core, domain, adapter, tool, and Bundle packages', async () => {
   assert.equal((await manifest('core/optimization')).name, '@tokens-as-parameters/core-optimization')
+  assert.equal((await manifest('core/training-runtime')).name, '@tokens-as-parameters/core-training-runtime')
   assert.equal((await manifest('core/optimizer-relative-reflection')).name, '@tokens-as-parameters/optimizer-relative-reflection')
   assert.equal((await manifest('formal/proof-runtime')).name, '@tokens-as-parameters/proof-runtime')
+  assert.equal((await manifest('formal/proof-agent')).name, '@tokens-as-parameters/proof-agent')
+  assert.equal((await manifest('formal/prover-code-agent')).name, '@tokens-as-parameters/prover-code-agent')
+  assert.equal((await manifest('formal/proof-loss')).name, '@tokens-as-parameters/proof-loss')
+  assert.equal((await manifest('formal/loss-lean-dual')).name, '@tokens-as-parameters/loss-lean-dual')
   assert.equal((await manifest('formal/proof-verification')).name, '@tokens-as-parameters/proof-verification')
   assert.equal((await manifest('lean/verifier-lean')).name, '@tokens-as-parameters/verifier-lean')
   assert.equal((await manifest('formal/tool-proof-run')).name, '@tokens-as-parameters/tool-proof-run')
@@ -29,6 +34,7 @@ test('workspace publishes independent core, domain, adapter, tool, and Bundle pa
 test('Core packages do not depend on Formal, Lean, Chips, or Bundle packages', async () => {
   for (const path of [
     'core/optimization',
+    'core/training-runtime',
     'core/optimizer-relative-reflection',
     'core/state-git',
     'core/telemetry',
@@ -44,8 +50,11 @@ test('Bundle composes packages and contains no implementation subpath plugins', 
     'core-optimization',
     'optimizer-relative-reflection',
     'proof-observer',
+    'proof-agent',
+    'prover-code-agent',
+    'proof-loss',
+    'loss-lean-dual',
     'proof-verification',
-    'proof-roles',
     'proof-runtime',
     'tool-proof-run',
     'ui-proof-run',

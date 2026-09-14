@@ -36,6 +36,11 @@ export function sessionTokens(events: readonly SessionEvent[]): number {
   return sessionUsage(events).totalTokens
 }
 
+/** One step is one completed model inference, independent of cache-token volume. */
+export function sessionSteps(events: readonly SessionEvent[]): number {
+  return events.filter(event => event.type === 'assistant/message').length
+}
+
 function textFrom(value: unknown, output: string[] = []): string[] {
   if (typeof value === 'string') output.push(value)
   else if (Array.isArray(value)) value.forEach(item => textFrom(item, output))

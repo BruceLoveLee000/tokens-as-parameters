@@ -72,5 +72,14 @@ export interface OptimizationEvidenceAccess {
   }>
   listStateNodes(rolloutId: string, limit: number): Promise<StateNode[]>
   inspectStateTransition(rolloutId: string, commit: string, maxCharacters: number): Promise<unknown>
+  readStateFile(rolloutId: string, commit: string, path: string, maxCharacters: number): Promise<unknown>
+  compareStateFiles(
+    leftRolloutId: string,
+    leftCommit: string,
+    rightRolloutId: string,
+    rightCommit: string,
+    path: string,
+    maxCharacters: number,
+  ): Promise<unknown>
   searchTrace(query: string, rolloutId: string | undefined, limit: number): Promise<TraceMatch[]>
 }

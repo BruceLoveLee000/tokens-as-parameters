@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { CommandRunner } from './command-runner.js'
 import type {
-  ParameterUpdatePlan,
+  OptimizationDecision,
   StateNode,
   TextParameterState,
 } from '@tokens-as-parameters/core-optimization'
@@ -12,7 +12,7 @@ export type { CommandReceipt, CommandRunner, CommandSpec } from './command-runne
 
 export type GitStateNode = StateNode
 
-async function expectSuccess(runner: CommandRunner, argv: readonly string[], cwd: string, signal?: AbortSignal): Promise<string> {
+async function expectSuccessRaw(runner: CommandRunner, argv: readonly string[], cwd: string, signal?: AbortSignal): Promise<string> {
   const receipt = await runner.run({
     argv,
     cwd,
@@ -23,7 +23,11 @@ async function expectSuccess(runner: CommandRunner, argv: readonly string[], cwd
   if (receipt.exitCode !== 0 || receipt.signal !== null) {
     throw new Error(`${argv.join(' ')} failed: ${(receipt.stderr || receipt.stdout).slice(-2_000)}`)
   }
-  return receipt.stdout.trim()
+  return receipt.stdout
+}
+
+async function expectSuccess(runner: CommandRunner, argv: readonly string[], cwd: string, signal?: AbortSignal): Promise<string> {
+  return (await expectSuccessRaw(runner, argv, cwd, signal)).trim()
 }
 
 export class GitState {
@@ -77,10 +81,24 @@ export class GitState {
   }
 
   async changedFiles(worktree: string, signal?: AbortSignal): Promise<string[]> {
-    const output = await expectSuccess(this.runner, ['git', 'status', '--porcelain=v1'], worktree, signal)
-    return output.length === 0
-      ? []
-      : output.split('\n').map(line => line.slice(3).trim()).filter(Boolean)
+    const output = await expectSuccessRaw(
+      this.runner,
+      ['git', 'status', '--porcelain=v1', '-z', '--untracked-files=all'],
+      worktree,
+      signal,
+    )
+    if (output.length === 0) return []
+    const fields = output.split('\0')
+    const paths: string[] = []
+    for (let index = 0; index < fields.length; index += 1) {
+      const entry = fields[index]
+      if (entry === undefined || entry.length === 0) continue
+      const status = entry.slice(0, 2)
+      const path = entry.slice(3)
+      if (path.length > 0) paths.push(path)
+      if (status.includes('R') || status.includes('C')) index += 1
+    }
+    return paths
   }
 
   async stateNodes(
@@ -120,6 +138,43 @@ export class GitState {
     return output.length <= limit ? output : `${output.slice(0, limit)}\n\n[transition truncated at ${limit} characters]`
   }
 
+  async readStateFile(
+    worktree: string,
+    commit: string,
+    path: string,
+    maxCharacters = 30_000,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    if (path.startsWith('/') || path.split('/').includes('..')) throw new Error('state file path must be repository-relative')
+    const output = await expectSuccess(this.runner, ['git', 'show', `${commit}:${path}`], worktree, signal)
+    const limit = Math.max(1_000, Math.min(100_000, Math.floor(maxCharacters)))
+    return output.length <= limit ? output : `${output.slice(0, limit)}\n\n[file truncated at ${limit} characters]`
+  }
+
+  async compareStateFile(
+    worktree: string,
+    leftCommit: string,
+    rightCommit: string,
+    path: string,
+    maxCharacters = 30_000,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    if (path.startsWith('/') || path.split('/').includes('..')) throw new Error('state file path must be repository-relative')
+    const receipt = await this.runner.run({
+      argv: ['git', 'diff', '--no-ext-diff', leftCommit, rightCommit, '--', path],
+      cwd: worktree,
+      timeoutMs: 60_000,
+      maxOutputBytes: 4_000_000,
+      ...(signal === undefined ? {} : { signal }),
+    })
+    if (receipt.exitCode === null || ![0, 1].includes(receipt.exitCode) || receipt.signal !== null) {
+      throw new Error('git state-file diff failed')
+    }
+    const output = receipt.stdout
+    const limit = Math.max(1_000, Math.min(100_000, Math.floor(maxCharacters)))
+    return output.length <= limit ? output : `${output.slice(0, limit)}\n\n[diff truncated at ${limit} characters]`
+  }
+
   async commitPaths(
     worktree: string,
     paths: readonly string[],
@@ -145,12 +200,24 @@ export class GitState {
     return this.head(worktree, signal)
   }
 
+  async commitSourceState(worktree: string, message: string, signal?: AbortSignal): Promise<string> {
+    return this.commitPaths(worktree, await this.changedSourcePaths(worktree, signal), message, signal)
+  }
+
+  private async changedSourcePaths(worktree: string, signal?: AbortSignal): Promise<string[]> {
+    const changed = await this.changedFiles(worktree, signal)
+    const sourceExtensions = /\.(?:lean|md|txt|json|toml|ya?ml)$/i
+    const credentialName = /(^|\/)(?:\.env(?:\..*)?|.*(?:credential|secret|token|api[-_]?key).*)$/i
+    const generatedPath = /(^|\/)(?:\.lake|node_modules|build|dist|lib|logs?|traces?)(\/|$)/i
+    return changed.filter(path => sourceExtensions.test(path))
+      .filter(path => !credentialName.test(path) && !generatedPath.test(path))
+  }
+
   async recordInsight(
     worktree: string,
     runId: string,
     epoch: number,
     rolloutId: string,
-    editableFiles: readonly string[],
     summary: string,
     insight: string,
     signal?: AbortSignal,
@@ -172,9 +239,14 @@ export class GitState {
       insight.trim(),
       '',
     ].join('\n'), 'utf8')
+    // This path is generated by the Runtime from structured arguments. Include it
+    // explicitly because the generic source filter rejects credential-like names,
+    // including our own .tokens-as-parameters directory. Source changes belong in
+    // the same model-selected transition so the Insight describes that exact tree.
+    const sourcePaths = await this.changedSourcePaths(worktree, signal)
     const commit = await this.commitPaths(
       worktree,
-      [...editableFiles, path],
+      [...new Set([...sourcePaths, path])],
       `state(${rolloutId}): ${summary.trim().slice(0, 72)}`,
       signal,
     )
@@ -188,7 +260,7 @@ export class GitState {
     epoch: number,
     trustedCommit: string,
     laneCommits: readonly string[],
-    plan: ParameterUpdatePlan,
+    decision: OptimizationDecision,
     parameterState: TextParameterState,
     signal?: AbortSignal,
   ): Promise<{ commit: string; path: string }> {
@@ -202,24 +274,32 @@ export class GitState {
       `createdAt: ${new Date().toISOString()}`,
       `trustedProofCommit: ${trustedCommit}`,
       `laneCommits: [${laneCommits.join(', ')}]`,
-      `baseParameterState: ${plan.baseStateVersion}`,
+      `baseParameterState: ${decision.parameterUpdate.baseStateVersion}`,
       `nextParameterState: ${parameterState.version}`,
       '---',
       '',
       '# Comparative reflection',
       '',
-      plan.reflection.trim(),
+      decision.parameterUpdate.reflection.trim(),
       '',
       '## Atomic parameter updates',
       '',
-      ...(plan.updates.length === 0
+      ...(decision.parameterUpdate.updates.length === 0
         ? ['No parameter content changed.', '']
-        : plan.updates.flatMap(update => [
+        : decision.parameterUpdate.updates.flatMap(update => [
             `### ${update.parameterId}`,
             '',
             update.content.trim(),
             '',
           ])),
+      '## Next rollout schedule',
+      '',
+      ...decision.nextRollouts.flatMap(directive => [
+        `### ${directive.rolloutId} from ${directive.baseStateId}`,
+        '',
+        directive.task.trim(),
+        '',
+      ]),
       '## Active parameter state',
       '',
       ...parameterState.parameters.flatMap(parameter => [

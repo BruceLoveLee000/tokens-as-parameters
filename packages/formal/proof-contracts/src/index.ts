@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type {
   ParameterUpdatePlan,
+  OptimizationDecision,
   TextParameterContextSnapshot,
   TextParameterState,
   TokenUsageSummary,
@@ -10,6 +11,7 @@ import type { CommandReceipt } from '@tokens-as-parameters/core-state-git'
 
 export type {
   ParameterUpdatePlan,
+  OptimizationDecision,
   TextParameterContextSnapshot,
   TextParameterState,
   TokenUsageSummary,
@@ -30,6 +32,12 @@ export const LockedInputSchema = z.object({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
 })
 
+export const ExternalDependencySchema = z.object({
+  name: z.string().trim().min(1),
+  root: z.string().trim().min(1),
+  commit: z.string().regex(/^[a-f0-9]{40,64}$/),
+})
+
 export const CaseManifestSchema = z.object({
   schemaVersion: z.literal(CASE_SCHEMA_VERSION),
   caseId: z.string().trim().min(1).max(160),
@@ -40,6 +48,7 @@ export const CaseManifestSchema = z.object({
   }).default({}),
   editableFiles: z.array(RelativePathSchema).min(1),
   lockedInputs: z.array(LockedInputSchema).min(1),
+  externalDependencies: z.array(ExternalDependencySchema).default([]),
   lean: z.object({
     workingDirectory: RelativePathSchema,
     proofFile: RelativePathSchema,
@@ -48,6 +57,7 @@ export const CaseManifestSchema = z.object({
     theoremName: z.string().trim().min(1),
     theoremSignatureSha256: z.string().regex(/^[a-f0-9]{64}$/),
     obligations: z.array(z.string().trim().min(1)).min(1),
+    dependencyCacheArgv: z.array(z.string().min(1)).min(1).optional(),
     buildArgv: z.array(z.string().min(1)).min(1).default(['lake', 'build']),
     allowedAxioms: z.array(z.string().trim().min(1)).default([
       'propext',
@@ -86,11 +96,16 @@ export type CaseManifest = z.infer<typeof CaseManifestSchema>
 export const ProofSearchConfigSchema = z.object({
   provider: z.string().trim().min(1).default('deepseek-official'),
   model: z.string().trim().min(1).default('deepseek-v4-flash'),
+  reasoningEffort: z.string().trim().min(1).default('max'),
+  prover: z.string().trim().min(1).default('formal-code-agent'),
+  loss: z.string().trim().min(1).default('lean-dual-check'),
   optimizer: z.string().trim().min(1).default('relative-reflection'),
   verifier: z.string().trim().min(1).default('lean'),
   rollouts: z.number().int().min(1).max(16).default(2),
   maxParallel: z.number().int().min(1).max(16).default(2),
   maxOutputTokensPerRequest: z.number().int().min(1_000).max(512_000).default(64_000),
+  maxStepsPerLane: z.number().int().min(1).max(10_000).default(200),
+  /** @deprecated Retained for old experiment manifests; model-step depth is the primary lane boundary. */
   maxCumulativeTokensPerLane: z.number().int().min(10_000).max(100_000_000).default(20_000_000),
   totalTokenBudget: z.number().int().min(10_000).max(1_000_000_000).default(300_000_000),
   maxWallTimeSeconds: z.number().int().min(60).max(604_800).default(43_200),
@@ -101,12 +116,22 @@ export const ProofSearchConfigSchema = z.object({
   }).default({ memory: true, plan: true, routes: true }),
   reflection: z.object({
     enabled: z.boolean().default(true),
+    maxSteps: z.number().int().min(1).max(1_000).default(32),
+    /** @deprecated Retained for old manifests; maxSteps is the active boundary. */
     softTokenBudget: z.number().int().min(10_000).max(10_000_000).default(500_000),
     maxOutputTokensPerRequest: z.number().int().min(4_000).max(256_000).default(64_000),
   }).default({
     enabled: true,
+    maxSteps: 32,
     softTokenBudget: 500_000,
     maxOutputTokensPerRequest: 64_000,
+  }),
+  lossJudge: z.object({
+    maxSteps: z.number().int().min(1).max(1_000).default(24),
+    maxOutputTokensPerRequest: z.number().int().min(4_000).max(256_000).default(32_000),
+  }).default({
+    maxSteps: 24,
+    maxOutputTokensPerRequest: 32_000,
   }),
   whiteboxReview: z.boolean().default(true),
 }).superRefine((value, context) => {
@@ -126,19 +151,28 @@ export const StartProofExperimentSchema = z.object({
   search: ProofSearchConfigSchema.default({
     provider: 'deepseek-official',
     model: 'deepseek-v4-flash',
+    reasoningEffort: 'max',
+    prover: 'formal-code-agent',
+    loss: 'lean-dual-check',
     optimizer: 'relative-reflection',
     verifier: 'lean',
     rollouts: 2,
     maxParallel: 2,
     maxOutputTokensPerRequest: 64_000,
+    maxStepsPerLane: 200,
     maxCumulativeTokensPerLane: 20_000_000,
     totalTokenBudget: 300_000_000,
     maxWallTimeSeconds: 43_200,
     parameterFeedback: { memory: true, plan: true, routes: true },
     reflection: {
       enabled: true,
+      maxSteps: 32,
       softTokenBudget: 500_000,
       maxOutputTokensPerRequest: 64_000,
+    },
+    lossJudge: {
+      maxSteps: 24,
+      maxOutputTokensPerRequest: 32_000,
     },
     whiteboxReview: true,
   }),
@@ -173,7 +207,7 @@ export type RunState =
   | 'FAILED'
 
 export interface ProofHygieneFinding {
-  kind: 'admit' | 'axiom' | 'unsafe' | 'signature' | 'locked-input' | 'unauthorized-change' | 'build' | 'axiom-audit'
+  kind: 'admit' | 'axiom' | 'unsafe' | 'signature' | 'locked-input' | 'unauthorized-change' | 'candidate-state' | 'build' | 'axiom-audit'
   message: string
   path?: string
 }
@@ -184,6 +218,8 @@ export interface ProofReceipt {
   caseId: string
   claimScope: CaseManifest['claimScope']
   worktree: string
+  /** Immutable Git state checked by the trusted evaluator; absent only for interactive diagnostics and old runs. */
+  candidateCommit?: string
   build: CommandReceipt
   lockedInputsMatch: boolean
   theoremSignatureMatches: boolean
@@ -227,10 +263,13 @@ export interface LaneEvidence {
   epoch: number
   route: string
   contextSnapshot: TextParameterContextSnapshot
+  baseCommit: string
   commit?: string
+  steps: number
   tokens: number
   tokenUsage: TokenUsageSummary
   receipt: ProofReceipt
+  loss: ProofLossReport
   traceTail: TraceEntry[]
 }
 
@@ -239,6 +278,32 @@ export interface WhiteboxReview {
   risk: 'low' | 'medium' | 'high'
   findings: Array<{ type: string; explanation: string }>
   recommendation: string
+}
+
+export type ProofCandidateStatus = 'INVALID' | 'EXPLORATORY' | 'VERIFIED'
+export type ProofLossVerdict = 'invalid' | 'no-progress' | 'progress' | 'solved'
+
+export interface ProofLossReport {
+  schemaVersion: typeof RUN_SCHEMA_VERSION
+  pluginId: string
+  candidateCommit: string
+  evaluatedAt: string
+  verdict: ProofLossVerdict
+  candidateStatus: ProofCandidateStatus
+  summary: string
+  ruleBased: {
+    buildPassed: boolean
+    lockedInputsMatch: boolean
+    theoremSignatureMatches: boolean
+    obligationsClosed: number
+    obligationsTotal: number
+    closedObligations: string[]
+    openObligations: string[]
+    forbiddenAxiomFindings: number
+    findings: ProofHygieneFinding[]
+  }
+  whitebox?: WhiteboxReview
+  metrics: Record<string, number | string | boolean>
 }
 
 export interface ProofRunSnapshot {
@@ -268,6 +333,7 @@ export interface ProofRunSnapshot {
   lanes: LaneEvidence[]
   parameterState: TextParameterState
   latestReflection?: ParameterUpdatePlan
+  latestOptimization?: OptimizationDecision
   finalReceipt?: ProofReceipt
   whiteboxReview?: WhiteboxReview
   stopReason?: string

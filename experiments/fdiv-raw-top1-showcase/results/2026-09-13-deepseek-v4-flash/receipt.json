@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "1.0",
+  "caseId": "fdiv-r14-raw-top1-audited-rebaseline-v1",
+  "claimScope": "lean-model-vs-spec",
+  "run": {
+    "startedAt": "2026-09-13T04:29:50.302Z",
+    "completedAt": "2026-09-13T07:22:14.938Z",
+    "wallTimeMilliseconds": 10344636,
+    "epochs": 7,
+    "reflections": 6,
+    "rollouts": 2,
+    "verdict": "PROVED",
+    "obligationsClosed": 1,
+    "obligationsTotal": 1,
+    "stopReason": "lean-dual-check accepted the complete immutable candidate commit"
+  },
+  "configuration": {
+    "frameworkCommit": "2ac0663245d6c8368a69c688a52c459de9c32168",
+    "executedCaseManifestSha256": "194d8f2f628ea04444dcdb147c721e0b0e6125b042ce19cba2a3995b97d32247",
+    "publicCaseManifestSha256": "29b40bc26ab71ca174b04f6e99e8d337a8fdeeaa39f3662fd314dd7418f806b7",
+    "dshVersion": "0.1.1-rc.2",
+    "provider": "deepseek-official",
+    "modelAlias": "deepseek-v4-flash",
+    "reasoningEffort": "max",
+    "prover": "formal-code-agent",
+    "loss": "lean-dual-check",
+    "optimizer": "relative-reflection",
+    "verifier": "lean",
+    "maxParallel": 2,
+    "maxStepsPerLanePerEpoch": 64,
+    "maxOutputTokensPerRequest": 64000,
+    "maxCumulativeTokensPerLane": 20000000,
+    "totalTokenBudget": 300000000,
+    "maxWallTimeSeconds": 43200,
+    "reflectionMaxSteps": 32,
+    "reflectionSoftTokenBudget": 500000,
+    "lossJudgeMaxSteps": 24
+  },
+  "steps": {
+    "total": 1166,
+    "prover": 838,
+    "lossJudge": 285,
+    "reflector": 43
+  },
+  "tokenUsage": {
+    "inputTokens": 4045961,
+    "outputTokens": 2294655,
+    "cacheReadTokens": 123862272,
+    "cacheWriteTokens": 0,
+    "reasoningTokensOutputSubset": 1753816,
+    "totalTokensIncludingCache": 130202888
+  },
+  "acceptedCandidates": [
+    {
+      "lane": "r1",
+      "commit": "e290975eceb1c45a9e278a2f1e3414bb4957800e",
+      "proverStepsInFinalEpoch": 44,
+      "tokensInFinalEpoch": 2590908,
+      "promoted": true
+    },
+    {
+      "lane": "r2",
+      "commit": "d5b6360712b5a3f4a0b44c85920a33df05eca040",
+      "proverStepsInFinalEpoch": 44,
+      "tokensInFinalEpoch": 3085128,
+      "promoted": false
+    }
+  ],
+  "proof": {
+    "path": "reference/FdivProof.lean",
+    "sha256": "da1074579691416e2bb71811f742d589eabd46fd10151aed0755b0c6936f4926",
+    "lines": 2632,
+    "theoremOrLemmaDeclarations": 189,
+    "buildExitCode": 0,
+    "lockedInputsMatch": true,
+    "theoremSignatureMatches": true,
+    "finalAccepted": true,
+    "forbiddenAxiomFindings": 0,
+    "topTheoremAxioms": [
+      "propext",
+      "Classical.choice",
+      "Quot.sound"
+    ],
+    "whiteboxVerdict": "APPROVED",
+    "whiteboxRisk": "low"
+  },
+  "redaction": {
+    "rawSessionTracePublished": false,
+    "reason": "The raw trace contains machine-local paths and large cached model context; this receipt contains only path-free aggregate and verifier evidence."
+  }
+}

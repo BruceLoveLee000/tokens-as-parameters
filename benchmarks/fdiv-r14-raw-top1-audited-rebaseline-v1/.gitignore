@@ -1,0 +1,4 @@
+.lake/
+formal/.lake
+*.olean
+*.ilean

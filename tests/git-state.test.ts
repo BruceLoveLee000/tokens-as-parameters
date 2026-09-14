@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -11,7 +11,6 @@ import {
   applyParameterUpdatePlan,
   createTextParameterState,
 } from '@tokens-as-parameters/core-optimization'
-import { transplantDeclarations } from '@tokens-as-parameters/verifier-lean'
 
 const execFileAsync = promisify(execFile)
 
@@ -52,24 +51,6 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
   return result.stdout.trim()
 }
 
-test('semantic consolidation transplants named Lean declarations without replacing frozen context', () => {
-  const base = [
-    'import FrozenSpec',
-    '',
-    'theorem first : True := by',
-    '  sorry',
-    '',
-    'theorem second : True := by',
-    '  sorry',
-    '',
-  ].join('\n')
-  const candidate = base.replace('theorem second : True := by\n  sorry', 'theorem second : True := by\n  trivial')
-  const merged = transplantDeclarations(base, candidate, ['second'])
-  assert.equal(merged.includes('theorem first : True := by\n  sorry'), true)
-  assert.equal(merged.includes('theorem second : True := by\n  trivial'), true)
-  assert.equal(merged.startsWith('import FrozenSpec'), true)
-})
-
 test('reflection state records consumed lane tips without merging their proof trees', async () => {
   const repository = await mkdtemp(join(tmpdir(), 'tap-reflection-git-test-'))
   await git(repository, 'init', '-q')
@@ -107,6 +88,13 @@ test('reflection state records consumed lane tips without merging their proof tr
     updates: [{ parameterId: 'search.plan', content: 'Preserve the checker-clean theorem.' }],
   }
   const nextParameters = applyParameterUpdatePlan(parameters, plan, 'v2')
+  const decision = {
+    parameterUpdate: plan,
+    nextRollouts: [
+      { rolloutId: 'r1', baseStateId: laneOne, task: 'Continue the trivial route.' },
+      { rolloutId: 'r2', baseStateId: laneTwo, task: 'Continue the simp route.' },
+    ],
+  }
   const reflection = await state.createReflectionState(
     repository,
     worktree,
@@ -114,7 +102,7 @@ test('reflection state records consumed lane tips without merging their proof tr
     1,
     baseline,
     [laneOne, laneTwo],
-    plan,
+    decision,
     nextParameters,
   )
 
@@ -125,12 +113,100 @@ test('reflection state records consumed lane tips without merging their proof tr
   assert.equal(await git(repository, 'show', `${reflection.commit}:Proof.lean`), 'theorem top : True := by sorry')
   assert.match(
     await git(repository, 'show', `${reflection.commit}:${reflection.path}`),
-    /Both lanes closed the same goal/,
+    /Both lanes closed the same goal[\s\S]*Continue the trivial route/,
   )
   assert.equal(
     await git(repository, 'rev-parse', 'refs/tokens-as-parameters/runs/run-test/reflections/e1'),
     reflection.commit,
   )
+})
+
+test('source checkpoints include new proof files but exclude credential-named artifacts', async () => {
+  const repository = await mkdtemp(join(tmpdir(), 'tap-source-state-test-'))
+  await git(repository, 'init', '-q')
+  await git(repository, 'config', 'user.name', 'Test User')
+  await git(repository, 'config', 'user.email', 'test@example.invalid')
+  await writeFile(join(repository, 'Proof.lean'), 'theorem top : True := by sorry\n', 'utf8')
+  await git(repository, 'add', 'Proof.lean')
+  await git(repository, 'commit', '-q', '-m', 'baseline')
+
+  await writeFile(join(repository, 'ProofView.lean'), 'theorem helper : True := by trivial\n', 'utf8')
+  await writeFile(join(repository, 'api-token.md'), 'must not enter history\n', 'utf8')
+  const state = new GitState(new LocalRunner())
+  const commit = await state.commitSourceState(repository, 'candidate source state')
+
+  assert.match(await git(repository, 'show', `${commit}:ProofView.lean`), /theorem helper/)
+  await assert.rejects(git(repository, 'show', `${commit}:api-token.md`))
+})
+
+test('source checkpoints preserve tracked nested paths whose porcelain status starts with a space', async () => {
+  const repository = await mkdtemp(join(tmpdir(), 'tap-tracked-source-state-test-'))
+  await git(repository, 'init', '-q')
+  await git(repository, 'config', 'user.name', 'Test User')
+  await git(repository, 'config', 'user.email', 'test@example.invalid')
+  await mkdir(join(repository, 'verifier'), { recursive: true })
+  const proof = join(repository, 'verifier', 'SmokeProof.lean')
+  await writeFile(proof, 'theorem top : True := by sorry\n', 'utf8')
+  await git(repository, 'add', 'verifier/SmokeProof.lean')
+  await git(repository, 'commit', '-q', '-m', 'baseline')
+
+  await writeFile(proof, 'theorem top : True := by trivial\n', 'utf8')
+  const state = new GitState(new LocalRunner())
+  const commit = await state.commitSourceState(repository, 'candidate source state')
+
+  assert.equal(
+    await git(repository, 'show', `${commit}:verifier/SmokeProof.lean`),
+    'theorem top : True := by trivial',
+  )
+  assert.equal(await git(repository, 'status', '--porcelain'), '')
+})
+
+test('source checkpoints commit tracked proof-source deletions', async () => {
+  const repository = await mkdtemp(join(tmpdir(), 'tap-deleted-source-state-test-'))
+  await git(repository, 'init', '-q')
+  await git(repository, 'config', 'user.name', 'Test User')
+  await git(repository, 'config', 'user.email', 'test@example.invalid')
+  await writeFile(join(repository, 'Scratch.lean'), 'theorem scratch : True := by trivial\n', 'utf8')
+  await git(repository, 'add', 'Scratch.lean')
+  await git(repository, 'commit', '-q', '-m', 'baseline')
+
+  await unlink(join(repository, 'Scratch.lean'))
+  const state = new GitState(new LocalRunner())
+  const commit = await state.commitSourceState(repository, 'remove obsolete proof scratch')
+
+  await assert.rejects(git(repository, 'show', `${commit}:Scratch.lean`))
+  assert.equal(await git(repository, 'status', '--porcelain'), '')
+})
+
+test('recorded insights become Git state nodes despite the protected token path filter', async () => {
+  const repository = await mkdtemp(join(tmpdir(), 'tap-insight-state-test-'))
+  await git(repository, 'init', '-q')
+  await git(repository, 'config', 'user.name', 'Test User')
+  await git(repository, 'config', 'user.email', 'test@example.invalid')
+  await writeFile(join(repository, 'Proof.lean'), 'theorem top : True := by sorry\n', 'utf8')
+  await git(repository, 'add', 'Proof.lean')
+  await git(repository, 'commit', '-q', '-m', 'baseline')
+
+  const state = new GitState(new LocalRunner())
+  await writeFile(join(repository, 'Proof.lean'), 'theorem top : True := by trivial\n', 'utf8')
+  const insight = await state.recordInsight(
+    repository,
+    'run-test',
+    1,
+    'r1',
+    'Reduced the goal',
+    'The remaining equality follows after exposing the normalization helper.',
+  )
+
+  assert.match(
+    await git(repository, 'show', `${insight.commit}:${insight.path}`),
+    /Reduced the goal[\s\S]*normalization helper/,
+  )
+  assert.equal(
+    await git(repository, 'show', `${insight.commit}:Proof.lean`),
+    'theorem top : True := by trivial',
+  )
+  assert.equal(await git(repository, 'status', '--porcelain'), '')
 })
 
 test('experiment snapshot requires a clean source and initializes an isolated baseline', async () => {

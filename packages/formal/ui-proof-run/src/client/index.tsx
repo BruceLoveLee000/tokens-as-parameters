@@ -92,13 +92,15 @@ interface DashboardActions {
 type DashboardProps = ConvViewProps & InjectFace<DashboardActions> & PropsLocale<typeof NS>
 
 const TERMINAL = new Set<ProofRunView['state']>(['PROVED', 'DISPROVED', 'UNKNOWN', 'ABORTED', 'FAILED'])
-const PIPELINE: ReadonlyArray<Extract<ProofRunView['state'], 'PREPARING' | 'PROVING' | 'CONSOLIDATING' | 'REFLECTING' | 'REVIEWING'>> = [
-  'PREPARING', 'PROVING', 'CONSOLIDATING', 'REFLECTING', 'REVIEWING',
+const PIPELINE: ReadonlyArray<Extract<ProofRunView['state'], 'PREPARING' | 'PROVING' | 'REFLECTING'>> = [
+  'PREPARING', 'PROVING', 'REFLECTING',
 ]
 
 const STYLE = `
 .tap-proof{box-sizing:border-box;height:100%;overflow:auto;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);padding:24px}.tap-proof *{box-sizing:border-box}.tap-proof__empty{height:100%;display:grid;place-content:center;text-align:center;gap:8px;color:var(--dsw-alias-label-tertiary)}.tap-proof__empty h2{margin:0;color:var(--dsw-alias-label-primary);font-size:18px}.tap-proof__empty p{margin:0;max-width:560px;font-size:13px;line-height:1.6}.tap-proof__head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}.tap-proof__identity{min-width:0}.tap-proof__case{font-size:22px;font-weight:650;line-height:1.25}.tap-proof__id{margin-top:4px;color:var(--dsw-alias-label-caption);font:12px/1.4 var(--ds-font-family-code);overflow:hidden;text-overflow:ellipsis}.tap-proof__controls{display:flex;gap:8px;align-items:center}.tap-proof select,.tap-proof button{font:inherit}.tap-proof__select{max-width:320px;height:34px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);padding:0 10px}.tap-proof__stop{height:34px;border:0;border-radius:8px;background:var(--dsw-alias-state-error-primary);color:white;padding:0 14px;cursor:pointer}.tap-proof__stop:disabled{opacity:.5;cursor:default}.tap-proof__metrics{display:grid;grid-template-columns:repeat(5,minmax(116px,1fr));gap:10px;margin-bottom:18px}.tap-proof__metric,.tap-proof__panel{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);border-radius:12px}.tap-proof__metric{padding:12px}.tap-proof__metric-label{color:var(--dsw-alias-label-tertiary);font-size:12px}.tap-proof__metric-value{margin-top:6px;font-size:18px;font-weight:650}.tap-proof__state{display:inline-flex;align-items:center;gap:7px}.tap-proof__dot{width:8px;height:8px;border-radius:50%;background:var(--dsw-alias-label-caption)}.tap-proof__dot--live{background:var(--dsw-alias-state-success-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--dsw-alias-state-success-primary) 15%,transparent)}.tap-proof__dot--bad{background:var(--dsw-alias-state-error-primary)}.tap-proof__panel{padding:16px;margin-bottom:14px}.tap-proof__panel h3{font-size:14px;margin:0 0 14px}.tap-proof__pipeline{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.tap-proof__stage{position:relative;min-height:50px;border:1px solid var(--dsw-alias-border-l2);border-radius:9px;padding:9px;color:var(--dsw-alias-label-tertiary);font-size:12px}.tap-proof__stage--active{border-color:var(--dsw-alias-state-business-primary);background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 9%,transparent);color:var(--dsw-alias-label-primary);font-weight:600}.tap-proof__sessions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.tap-proof__session{display:flex;align-items:center;gap:10px;min-width:0;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:11px}.tap-proof__session-main{min-width:0;flex:1}.tap-proof__session-title{font-size:13px;font-weight:600}.tap-proof__session-id{margin-top:3px;color:var(--dsw-alias-label-caption);font:11px/1.35 var(--ds-font-family-code);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tap-proof__session-meta{margin-top:5px;color:var(--dsw-alias-label-tertiary);font-size:11px}.tap-proof__open{height:30px;flex:none;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);cursor:pointer;padding:0 10px}.tap-proof__reason{margin-top:10px;padding:10px 12px;border-radius:8px;background:var(--dsw-specific-tip);font-size:12px;line-height:1.5}.tap-proof__error{margin:10px 0;color:var(--dsw-alias-state-error-primary);font-size:12px}@media(max-width:900px){.tap-proof{padding:16px}.tap-proof__head{flex-direction:column}.tap-proof__controls{width:100%}.tap-proof__select{flex:1}.tap-proof__metrics{grid-template-columns:repeat(2,1fr)}.tap-proof__pipeline{grid-template-columns:1fr}.tap-proof__sessions{grid-template-columns:1fr}}
 `
+
+const CURRENT_PIPELINE_STYLE = '.tap-proof__pipeline{grid-template-columns:repeat(3,1fr)}'
 
 function formatTokens(value: number): string {
   if (value < 1_000) return String(value)
@@ -118,7 +120,7 @@ function formatDuration(startedAt: string | undefined, completedAt: string | und
 
 function sessionRole(id: string): 'prover' | 'reflector' | 'reviewer' | 'other' {
   if (id.endsWith('-reflector')) return 'reflector'
-  if (id.endsWith('-final-review')) return 'reviewer'
+  if (id.endsWith('-final-review') || /-r\d+-loss$/.test(id)) return 'reviewer'
   if (/-r\d+$/.test(id)) return 'prover'
   return 'other'
 }
@@ -143,7 +145,7 @@ function runSessions(run: ProofRunView): Array<{
       role: sessionRole(id),
       detail: lane === undefined
         ? `${formatTokens(run.sessionTokens[id] ?? 0)} · epoch ${run.epoch}`
-        : `${formatTokens(lane.tokens)} · ${lane.obligationsClosed}/${lane.obligationsTotal}`,
+        : `${lane.steps} steps · ${formatTokens(lane.tokens)} · ${lane.obligationsClosed}/${lane.obligationsTotal} · ${lane.candidateStatus}/${lane.lossVerdict}`,
     }
   })
 }
@@ -236,7 +238,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => {
     const style = document.createElement('style')
     style.dataset.plugin = '@tokens-as-parameters/ui-proof-run'
-    style.textContent = STYLE
+    style.textContent = `${STYLE}${CURRENT_PIPELINE_STYLE}`
     document.head.appendChild(style)
     return () => { style.remove() }
   }, 'ui-proof-run: styles')

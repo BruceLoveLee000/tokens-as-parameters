@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
@@ -177,13 +178,84 @@ export function parseNamedAxiomAudits(output: string): Map<string, string[]> {
   return audits
 }
 
+export function leanDependencyCacheKey(resolvedCase: ResolvedCase): string {
+  const lockedInputs = resolvedCase.lockedInputs
+    .filter(input => /(?:lakefile\.lean|lake-manifest\.json|lean-toolchain)$/.test(input.path))
+    .map(input => ({ path: input.path, sha256: input.sha256 }))
+    .sort((left, right) => left.path.localeCompare(right.path))
+  const externalDependencies = resolvedCase.manifest.externalDependencies
+    .map(dependency => ({ name: dependency.name, commit: dependency.commit }))
+    .sort((left, right) => left.name.localeCompare(right.name))
+  return sha256(JSON.stringify({ schemaVersion: 1, lockedInputs, externalDependencies }))
+}
+
 export class LeanVerifier implements ProofVerifier {
   readonly id = 'lean'
 
   constructor(private readonly runner: CommandRunner) {}
 
-  consolidate(baseSource: string, candidateSource: string, acceptedUnits: readonly string[]): string {
-    return transplantDeclarations(baseSource, candidateSource, acceptedUnits)
+  async prepareBaselineEnvironment(
+    resolvedCase: ResolvedCase,
+    worktree: string,
+    sharedCacheRoot: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const argv = resolvedCase.manifest.lean.dependencyCacheArgv
+    if (argv === undefined) return
+    const packages = join(
+      resolveInside(worktree, resolvedCase.manifest.lean.workingDirectory),
+      '.lake',
+      'packages',
+    )
+    const sharedPackages = this.sharedPackagesCache(sharedCacheRoot, resolvedCase)
+    await this.copyPackagesCache(sharedPackages, packages, signal)
+    const receipt = await this.runner.run({
+      argv,
+      cwd: resolveInside(worktree, resolvedCase.manifest.lean.workingDirectory),
+      timeoutMs: 30 * 60_000,
+      maxOutputBytes: 8_000_000,
+      ...(signal === undefined ? {} : { signal }),
+    })
+    if (receipt.exitCode !== 0 || receipt.signal !== null) {
+      throw new Error(`Lean dependency cache preparation failed: ${receipt.stderr || receipt.stdout}`)
+    }
+    await this.copyPackagesCache(packages, sharedPackages, signal)
+  }
+
+  async prepareRunEnvironment(
+    resolvedCase: ResolvedCase,
+    checkedWorktree: string,
+    runDirectory: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted()
+    const source = join(
+      resolveInside(checkedWorktree, resolvedCase.manifest.lean.workingDirectory),
+      '.lake',
+      'packages',
+    )
+    const target = this.runPackagesCache(runDirectory)
+    await rm(target, { recursive: true, force: true })
+    await this.copyPackagesCache(source, target, signal)
+    signal?.throwIfAborted()
+  }
+
+  async hydrateRunEnvironment(
+    resolvedCase: ResolvedCase,
+    runDirectory: string,
+    worktree: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted()
+    const source = this.runPackagesCache(runDirectory)
+    const target = join(
+      resolveInside(worktree, resolvedCase.manifest.lean.workingDirectory),
+      '.lake',
+      'packages',
+    )
+    await rm(target, { recursive: true, force: true })
+    await this.copyPackagesCache(source, target, signal)
+    signal?.throwIfAborted()
   }
 
   async check(
@@ -192,6 +264,7 @@ export class LeanVerifier implements ProofVerifier {
     baselineClosed = 0,
     signal?: AbortSignal,
     baselineCommit?: string,
+    candidateCommit?: string,
   ): Promise<ProofReceipt> {
     const manifest = resolvedCase.manifest
     const leanWorkingDirectory = resolveInside(worktree, manifest.lean.workingDirectory)
@@ -206,6 +279,28 @@ export class LeanVerifier implements ProofVerifier {
       ? proofSource
       : await readFile(theoremPath, 'utf8')
     const findings = proofHygiene(proofSource, manifest.lean.proofFile)
+    if (candidateCommit !== undefined) {
+      const head = await this.runner.run({
+        argv: ['git', 'rev-parse', 'HEAD'],
+        cwd: worktree,
+        timeoutMs: 60_000,
+        maxOutputBytes: 256_000,
+        ...(signal === undefined ? {} : { signal }),
+      })
+      const changed = await this.changedPathsSince(worktree, candidateCommit, signal)
+      const dirtySources = changed.filter(path => /\.(?:lean|md|txt|json|toml|ya?ml)$/i.test(path))
+      if (
+        head.exitCode !== 0
+        || head.signal !== null
+        || head.stdout.trim() !== candidateCommit
+        || dirtySources.length > 0
+      ) {
+        findings.push({
+          kind: 'candidate-state',
+          message: `checker input is not the immutable candidate commit ${candidateCommit}${dirtySources.length === 0 ? '' : `; dirty sources: ${dirtySources.join(', ')}`}`,
+        })
+      }
+    }
     const mismatches = await verifyLockedInputs(worktree, resolvedCase.lockedInputs)
     for (const mismatch of mismatches) {
       findings.push({
@@ -216,17 +311,16 @@ export class LeanVerifier implements ProofVerifier {
     }
     if (baselineCommit !== undefined) {
       const changed = await this.changedPathsSince(worktree, baselineCommit, signal)
-      const editable = new Set(manifest.editableFiles)
-      const unauthorized = changed.filter(path =>
-        !editable.has(path)
-        && !/^\.tokens-as-parameters\/(?:insights|reflections)\/.*\.md$/.test(path),
-      )
-      for (const path of unauthorized) {
-        findings.push({
-          kind: 'unauthorized-change',
-          message: `candidate changed a path outside the declared editable surface: ${path}`,
-          path,
-        })
+      for (const path of changed.filter(path => path.endsWith('.lean') && path !== manifest.lean.proofFile)) {
+        try {
+          findings.push(...proofHygiene(await readFile(resolveInside(worktree, path), 'utf8'), path))
+        } catch (error) {
+          // A deleted proof-side source is still a meaningful Git transition, but
+          // there is no remaining source text to audit. Locked files, the theorem
+          // signature, imports, and build correctness are checked independently.
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+          findings.push({ kind: 'build', message: `unable to inspect changed Lean source: ${path}`, path })
+        }
       }
     }
     const signature = theoremSignatureSha256(theoremSource, manifest.lean.theoremName)
@@ -274,7 +368,7 @@ export class LeanVerifier implements ProofVerifier {
       && signatureMatches
       && findings.every(finding => finding.kind === 'build'
         ? false
-        : !['admit', 'axiom', 'unsafe', 'signature', 'locked-input', 'unauthorized-change'].includes(finding.kind))
+        : !['admit', 'axiom', 'unsafe', 'signature', 'locked-input', 'candidate-state'].includes(finding.kind))
     let obligationAxiomAudit: ProofReceipt['obligationAxiomAudit']
     let checkpointAxiomAudit: ProofReceipt['checkpointAxiomAudit']
     let axiomAudit: ProofReceipt['axiomAudit']
@@ -346,6 +440,7 @@ export class LeanVerifier implements ProofVerifier {
       caseId: manifest.caseId,
       claimScope: manifest.claimScope,
       worktree,
+      ...(candidateCommit === undefined ? {} : { candidateCommit }),
       build,
       lockedInputsMatch: mismatches.length === 0,
       theoremSignatureMatches: signatureMatches,
@@ -378,6 +473,54 @@ export class LeanVerifier implements ProofVerifier {
       ...(signal === undefined ? {} : { signal }),
     })
     return receipt.exitCode === 0 && receipt.signal === null ? receipt.stdout : undefined
+  }
+
+  private runPackagesCache(runDirectory: string): string {
+    return join(runDirectory, 'verifier-cache', this.id, 'packages')
+  }
+
+  private sharedPackagesCache(sharedCacheRoot: string, resolvedCase: ResolvedCase): string {
+    return join(sharedCacheRoot, '.verifier-cache', this.id, leanDependencyCacheKey(resolvedCase), 'packages')
+  }
+
+  private async copyPackagesCache(source: string, target: string, signal?: AbortSignal): Promise<void> {
+    try {
+      await access(source)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+    try {
+      await access(target)
+      return
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    signal?.throwIfAborted()
+    await mkdir(resolve(target, '..'), { recursive: true })
+    const fastCopyArgv = process.platform === 'darwin'
+      ? ['cp', '-cR', source, target]
+      : process.platform === 'linux'
+        ? ['cp', '--reflink=auto', '-R', source, target]
+        : undefined
+    if (fastCopyArgv !== undefined) {
+      const receipt = await this.runner.run({
+        argv: fastCopyArgv,
+        cwd: resolve(target, '..'),
+        timeoutMs: 30 * 60_000,
+        maxOutputBytes: 2_000_000,
+        ...(signal === undefined ? {} : { signal }),
+      })
+      if (receipt.exitCode === 0 && receipt.signal === null) return
+      signal?.throwIfAborted()
+      await rm(target, { recursive: true, force: true })
+    }
+    await cp(source, target, {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+      mode: constants.COPYFILE_FICLONE,
+    })
   }
 
   private async changedPathsSince(
@@ -440,34 +583,6 @@ export class LeanVerifier implements ProofVerifier {
       await rm(tempRoot, { recursive: true, force: true })
     }
   }
-}
-
-/** Merge only named Lean declarations; the caller must re-run the verifier. */
-export function transplantDeclarations(
-  baseSource: string,
-  candidateSource: string,
-  names: readonly string[],
-): string {
-  let output = baseSource
-  const candidateDeclarations = [...declarationSources(candidateSource).values()]
-  for (const name of names) {
-    const base = declarationSources(output).get(name)
-    const candidate = declarationSources(candidateSource).get(name)
-    if (candidate === undefined) continue
-    if (base !== undefined) {
-      output = `${output.slice(0, base.start)}${candidate.source}\n\n${output.slice(base.end).replace(/^\s+/, '')}`
-      continue
-    }
-    const nextCandidate = candidateDeclarations.find(declaration => (
-      declaration.start > candidate.start && declarationSources(output).has(declaration.name)
-    ))
-    const insertion = nextCandidate === undefined
-      ? output.length
-      : declarationSources(output).get(nextCandidate.name)?.start ?? output.length
-    const separator = insertion === output.length && !output.endsWith('\n') ? '\n\n' : ''
-    output = `${output.slice(0, insertion)}${separator}${candidate.source}\n\n${output.slice(insertion).replace(/^\s+/, '')}`
-  }
-  return output
 }
 
 export async function readProof(path: string): Promise<string> {

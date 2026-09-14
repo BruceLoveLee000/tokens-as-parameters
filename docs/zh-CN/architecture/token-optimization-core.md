@@ -4,7 +4,7 @@
 
 ## 架构决策
 
-Tokens as Parameters 要训练的是 **Agent**，不是基础大模型，也不是藏在 Core 中的某个领域工作流。一个 Agent 的有效架构由固定定义、工具、Skill、环境适配器以及版本化文本参数共同构成。领域 Plugin 负责定义这套架构；Core 只提供注册、暴露、评估和更新文本参数的领域无关机制。
+Tokens as Parameters 要训练的是 **Agent**，不是基础大模型，也不是藏在 Core 中的某个领域工作流。一个 Agent 的有效架构由固定定义、工具、Skill、环境适配器以及版本化文本参数共同构成。领域 Plugin 负责定义这套架构；Core 同时提供领域无关的文本参数机制，以及无策略的 `rollout → evaluate → optimize → apply` Training Runtime。
 
 DSH Bundle 是一套可部署的训练系统。它可以组装目标 Agent、Optimizer Agent、Evaluator、持久化与控制能力，但 Bundle 自身不是模型。
 
@@ -14,9 +14,10 @@ flowchart TB
     Registry[文本参数定义]
     State[版本化参数状态]
     Exposure[上下文暴露快照]
-    Feedback[Evaluation 与证据访问]
-    Contract[原子更新契约]
+    Feedback[Loss Report 与证据访问]
+    Contract[原子更新与 Rollout 调度契约]
     Optimizers[Optimizer 注册中心]
+    Loop[Training Runtime 循环]
   end
 
   subgraph Adapter[DSH 适配层]
@@ -31,7 +32,7 @@ flowchart TB
   end
 
   subgraph Product[Bundle / 实验]
-    Runtime[Epoch 与 Rollout Runtime]
+    Adapter[领域 Runtime Adapter]
     Controls[控制与可观测性]
   end
 
@@ -47,12 +48,14 @@ flowchart TB
   Feedback --> Optimizers
   Optimizers --> Contract
   Contract --> State
-  Runtime --> Sessions
-  Runtime --> State
-  Controls --> Runtime
+  Adapter --> Loop
+  Loop --> Sessions
+  Loop --> State
+  Loop --> Optimizers
+  Controls --> Adapter
 ```
 
-依赖方向只能向上：Core 不得导入 Formal、Lean、Chips、数学、Code Agent 定义或 Benchmark Package。
+依赖方向只能向上：Core 不得导入 Formal、Lean、Chips、数学、Code Agent 定义或 Benchmark Package。领域 Adapter 通过 Training Runtime Hook 实现 Candidate 生成、Evaluation、接受、持久化与清理。
 
 ## 与权重训练的映射
 
@@ -64,10 +67,10 @@ flowchart TB
 | Tensor Parameter | 版本化 `TextParameter` |
 | `requires_grad` | 实例级 `requiresFeedback` |
 | 前向传播 | Agent 通过工具和环境执行 Rollout |
-| Loss/Reward | 外部 `EvaluationRecord` |
+| Loss/Reward | 可替换的外部 `EvaluationRecord` / 领域 Loss Plugin |
 | Activation/Trace | Session Event、产物与状态转移 |
 | Gradient | 从证据比较中推断出的语义信号 |
-| `Optimizer.step()` | 经过校验的原子 `ParameterUpdatePlan` |
+| `Optimizer.step()` | 经过校验的原子 `OptimizationDecision` |
 | Checkpoint | 参数状态、解状态、优化器状态与来源链 |
 
 不可变的用户任务通常是输入，不是可训练参数。若来源追踪需要，领域 Agent 也可以注册冻结文本；但一段文本被观察到，并不意味着它自动成为参数。
@@ -117,7 +120,7 @@ Optimizer 可以先按 Parameter ID 查询使用情况，再分页读取 Trace �
 
 ### 反馈与原子更新
 
-`ParameterUpdatePlan` 包含基础状态版本、语义反思，以及任意一组开放反馈参数的新文本。没有出现在 Updates 中的参数逐字保持不变。Controller 会在整体应用前拒绝过期版本、重复更新、未知 ID 和对冻结参数的修改。
+`ParameterUpdatePlan` 包含基础参数状态版本、语义反思，以及任意一组开放反馈参数的新文本。没有出现在 Updates 中的参数逐字保持不变。`OptimizationDecision` 在此基础上增加每条未来 Lane 的一个 `RolloutDirective`：选择一个可用 Solution State，并给出自然语言任务。Controller 会在整体应用前拒绝过期版本、重复更新、未知 ID、冻结参数、缺失 Lane 和非法父状态。
 
 该设计刻意比 Patch、编辑脚本、逐 Token 梯度或隐式 Merge 更简单。只有实验出现明确需求并提供证据后，复杂机制才应进入 Core API。
 
@@ -135,7 +138,7 @@ Evaluator 可以晋升 Solution State，Optimizer 可以提出 Parameter State �
 ```mermaid
 sequenceDiagram
   participant D as 领域 Agent Definition
-  participant R as Runtime
+  participant R as Core Training Runtime
   participant A as 目标 Agent Sessions
   participant E as Evaluator
   participant O as Optimizer Agent
@@ -148,18 +151,19 @@ sequenceDiagram
   A-->>E: 产物与终态
   E-->>R: 结构化 Evaluation
   R->>O: 参数注册表、摘要和只读证据工具
-  O->>R: ParameterUpdatePlan(base=vN)
-  R->>R: 校验版本、ID 与冻结标志
+  O->>R: OptimizationDecision（参数更新 + 下一轮父状态/任务）
+  R->>R: 校验参数、Lane 与可用状态 ID
   R->>S: 原子提交状态 vN+1
 ```
 
-Relative Reflection 实现有意输出语义更新，而不是强制压成标量 Advantage。它的消费者也是语言模型 Agent，高带宽文本比较可能传递单个数字无法表达的信息。未来的数值或混合 Optimizer 仍可实现同一契约。
+Relative Reflection 实现有意输出语义更新，而不是强制压成标量 Advantage。它的消费者也是语言模型 Agent，高带宽文本比较可能传递单个数字无法表达的信息；同时它会为每条 Lane 独立选择下一父状态。未来的数值或混合 Optimizer 仍可实现同一契约。
 
 ## Package 边界
 
 | Package | 负责 | 不负责 |
 |---|---|---|
-| `core-optimization` | 参数、暴露、Evaluation、更新与 Optimizer 注册契约 | 领域参数 ID 或 Agent Prompt |
+| `core-optimization` | 参数、暴露、Evaluation、可用状态、Rollout 指令、更新与 Optimizer 注册契约 | 领域参数 ID、Loss 语义或 Agent Prompt |
+| `core-training-runtime` | 并行 Rollout、Evaluation 顺序、Optimizer 调用、原子状态转移、Epoch 生命周期与清理 Hook | Lean、定理 Obligation、证明 Verdict、领域预算或接受语义 |
 | `optimizer-relative-reflection` | 自主检查证据并提出语义更新 | 验收任务结果或注入领域答案 |
 | `core-state-git` | Git 支撑的 Insight 与参数状态转移来源链 | 证明语义 |
 | `core-telemetry` | 有界 DSH Trace 投影与精确 Token 维度 | 训练策略 |
@@ -176,7 +180,8 @@ Cordis `ctx.optimization` Service 是注册 Optimizer Provider 的 DSH 适配缝
 - 精确上下文暴露快照；
 - 结构化 Evaluation 和有界证据工具；
 - 带过期/冻结校验的原子子集更新；
-- 可替换 Optimizer Provider 与 Git 来源记录。
+- 可替换 Optimizer Provider、经过校验的逐 Lane 父状态/任务调度与 Git 来源记录。
+- 带类型 Hook 与 Epoch 清理保证的领域无关 Training Runtime。
 
 等待实验驱动后再实现：
 

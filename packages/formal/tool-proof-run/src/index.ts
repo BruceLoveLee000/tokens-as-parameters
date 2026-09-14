@@ -54,20 +54,26 @@ export function apply(ctx: Context): void {
       case_id: { type: 'string', required: true, description: 'Exact case id returned by chip_proof_cases.' },
       provider: { type: 'string', description: 'DSH model provider, default deepseek-official.' },
       model: { type: 'string', description: 'Model id, default deepseek-v4-flash.' },
+      reasoning_effort: { type: 'string', description: 'Adapter-owned reasoning effort pinned on every Prover, Loss Judge, and Reflector request; default max.' },
+      prover: { type: 'string', description: 'Registered Prover Agent provider id, default formal-code-agent.' },
+      loss: { type: 'string', description: 'Registered Loss provider id, default lean-dual-check. Use lean-rule-only for the black-box-only ablation.' },
       optimizer: { type: 'string', description: 'Registered token Optimizer id, default relative-reflection.' },
       verifier: { type: 'string', description: 'Registered proof Verifier id, default lean.' },
       rollouts: { type: 'integer', description: 'Parallel search lanes, default 2.' },
       max_parallel: { type: 'integer', description: 'Maximum simultaneously active prover lanes.' },
       max_output_tokens: { type: 'integer', description: 'Per-request output cap, default 64000.' },
-      max_lane_tokens: { type: 'integer', description: 'Per-lane cumulative token cap, default 20000000.' },
+      max_steps_per_lane: { type: 'integer', description: 'Primary rollout depth budget measured in completed model inferences, default 200.' },
+      max_lane_tokens: { type: 'integer', description: 'Deprecated compatibility field; it no longer controls rollout depth.' },
       total_token_budget: { type: 'integer', description: 'Whole-run token cap, default 300000000.' },
       max_wall_time_seconds: { type: 'integer', description: 'Whole-run wall-time cap, default 43200.' },
       feedback_memory: { type: 'boolean', description: 'Allow reflection to update shared verifier-backed task memory, default true.' },
       feedback_plan: { type: 'boolean', description: 'Allow reflection to update the shared proof-search plan, default true.' },
       feedback_routes: { type: 'boolean', description: 'Allow reflection to update lane-specific search assignments, default true.' },
       reflection_enabled: { type: 'boolean', description: 'Enable group-relative reflection, default true.' },
-      reflection_soft_tokens: { type: 'integer', description: 'Switch a reflector to submit-only after this cumulative token count.' },
-      whitebox_review: { type: 'boolean', description: 'Require model white-box veto review after deterministic final acceptance.' },
+      reflection_max_steps: { type: 'integer', description: 'Reflector evidence and reasoning step boundary, default 32.' },
+      reflection_soft_tokens: { type: 'integer', description: 'Deprecated compatibility field; reflection_max_steps is the active boundary.' },
+      loss_judge_max_steps: { type: 'integer', description: 'White-box Loss Judge step boundary for every rollout, default 24.' },
+      whitebox_review: { type: 'boolean', description: 'Legacy ablation switch. False selects rule-only loss behavior.' },
     },
     output: STRING_OUTPUT,
     async execute(args, exec) {
@@ -78,11 +84,19 @@ export function apply(ctx: Context): void {
       const search = {
         ...(args.provider === undefined ? {} : { provider: args.provider }),
         ...(args.model === undefined ? {} : { model: args.model }),
+        ...(args.reasoning_effort === undefined ? {} : { reasoningEffort: args.reasoning_effort }),
+        ...(args.prover === undefined ? {} : { prover: args.prover }),
+        ...(args.loss !== undefined
+          ? { loss: args.loss }
+          : args.whitebox_review === false
+            ? { loss: 'lean-rule-only' }
+            : {}),
         ...(args.optimizer === undefined ? {} : { optimizer: args.optimizer }),
         ...(args.verifier === undefined ? {} : { verifier: args.verifier }),
         ...(args.rollouts === undefined ? {} : { rollouts: args.rollouts }),
         ...(args.max_parallel === undefined ? {} : { maxParallel: args.max_parallel }),
         ...(args.max_output_tokens === undefined ? {} : { maxOutputTokensPerRequest: args.max_output_tokens }),
+        ...(args.max_steps_per_lane === undefined ? {} : { maxStepsPerLane: args.max_steps_per_lane }),
         ...(args.max_lane_tokens === undefined ? {} : { maxCumulativeTokensPerLane: args.max_lane_tokens }),
         ...(args.total_token_budget === undefined ? {} : { totalTokenBudget: args.total_token_budget }),
         ...(args.max_wall_time_seconds === undefined ? {} : { maxWallTimeSeconds: args.max_wall_time_seconds }),
@@ -94,7 +108,11 @@ export function apply(ctx: Context): void {
         },
         reflection: {
           ...(args.reflection_enabled === undefined ? {} : { enabled: args.reflection_enabled }),
+          ...(args.reflection_max_steps === undefined ? {} : { maxSteps: args.reflection_max_steps }),
           ...(args.reflection_soft_tokens === undefined ? {} : { softTokenBudget: args.reflection_soft_tokens }),
+        },
+        lossJudge: {
+          ...(args.loss_judge_max_steps === undefined ? {} : { maxSteps: args.loss_judge_max_steps }),
         },
       }
       const snapshot = await ctx.proofRuns.startExperiment({

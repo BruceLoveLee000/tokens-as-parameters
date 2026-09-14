@@ -4,7 +4,7 @@
 
 ## Architectural decision
 
-Tokens as Parameters trains an **Agent**, not the base language model and not a domain workflow hidden inside Core. An Agent's effective architecture is the composition of its fixed definition, tools, Skills, environment adapters, and versioned text parameters. A domain plugin defines that architecture; Core only supplies the domain-neutral mechanism for registering, exposing, evaluating, and updating text parameters.
+Tokens as Parameters trains an **Agent**, not the base language model and not a domain workflow hidden inside Core. An Agent's effective architecture is the composition of its fixed definition, tools, Skills, environment adapters, and versioned text parameters. A domain plugin defines that architecture; Core supplies both the domain-neutral text-parameter mechanism and the policy-free `rollout → evaluate → optimize → apply` Training Runtime.
 
 A DSH Bundle is one deployable training system. It may compose a target Agent, an Optimizer Agent, Evaluators, persistence, and controls, but the Bundle itself is not the model.
 
@@ -14,9 +14,10 @@ flowchart TB
     Registry[Text parameter definitions]
     State[Versioned parameter state]
     Exposure[Context exposure snapshots]
-    Feedback[Evaluation and evidence access]
-    Contract[Atomic update contract]
+    Feedback[Loss reports and evidence access]
+    Contract[Atomic update and rollout-schedule contract]
     Optimizers[Optimizer registry]
+    Loop[Training Runtime loop]
   end
 
   subgraph Adapter[DSH adapter layer]
@@ -31,7 +32,7 @@ flowchart TB
   end
 
   subgraph Product[Bundle / experiment]
-    Runtime[Epoch and rollout runtime]
+    Adapter[Domain runtime adapter]
     Controls[Controls and observability]
   end
 
@@ -47,12 +48,14 @@ flowchart TB
   Feedback --> Optimizers
   Optimizers --> Contract
   Contract --> State
-  Runtime --> Sessions
-  Runtime --> State
-  Controls --> Runtime
+  Adapter --> Loop
+  Loop --> Sessions
+  Loop --> State
+  Loop --> Optimizers
+  Controls --> Adapter
 ```
 
-The dependency direction is upward: Core does not import Formal, Lean, Chips, mathematics, Code Agent definitions, or benchmark packages.
+The dependency direction is upward: Core does not import Formal, Lean, Chips, mathematics, Code Agent definitions, or benchmark packages. Domain adapters implement the Training Runtime hooks for candidate creation, evaluation, acceptance, persistence, and cleanup.
 
 ## Mapping from weight training
 
@@ -64,10 +67,10 @@ The analogy is useful as an interface guide, not as a claim of differentiability
 | tensor parameter | versioned `TextParameter` |
 | `requires_grad` | instance-level `requiresFeedback` |
 | forward pass | Agent rollout through tools and an environment |
-| loss/reward | external `EvaluationRecord` |
+| loss/reward | replaceable external `EvaluationRecord` / domain Loss plugin |
 | activation/trace | session events, artifacts, and state transitions |
 | gradient | semantic comparison inferred from evidence |
-| `Optimizer.step()` | validated atomic `ParameterUpdatePlan` |
+| `Optimizer.step()` | validated atomic `OptimizationDecision` |
 | checkpoint | parameter state, solution state, optimizer state, and provenance |
 
 The immutable user task is normally an input, not a trainable parameter. A domain Agent may register frozen text when provenance requires it, but observation alone does not make text trainable.
@@ -117,7 +120,7 @@ The Optimizer can inspect usage by parameter id and then page traces or inspect 
 
 ### Feedback and atomic update
 
-`ParameterUpdatePlan` contains the base state version, a semantic reflection, and replacements for any subset of feedback-enabled parameters. Omitted parameters remain byte-for-byte unchanged. The controller rejects stale versions, duplicate updates, unknown ids, and updates to frozen parameters before applying the whole plan atomically.
+`ParameterUpdatePlan` contains the base parameter-state version, a semantic reflection, and replacements for any subset of feedback-enabled parameters. Omitted parameters remain byte-for-byte unchanged. `OptimizationDecision` wraps that update together with one `RolloutDirective` per future lane. Each directive selects an eligible solution-state id and supplies a natural-language task. The controller rejects stale versions, duplicate updates, unknown ids, frozen parameters, missing lanes, and invalid solution parents before applying the decision.
 
 This is deliberately simpler than patches, edit scripts, per-token gradients, or implicit merge semantics. Those mechanisms require evidence before entering the Core API.
 
@@ -137,7 +140,7 @@ An Evaluator may promote solution state. An Optimizer may propose parameter stat
 ```mermaid
 sequenceDiagram
   participant D as Domain Agent definition
-  participant R as Runtime
+  participant R as Core Training Runtime
   participant A as Target Agent sessions
   participant E as Evaluator
   participant O as Optimizer Agent
@@ -150,18 +153,19 @@ sequenceDiagram
   A-->>E: artifacts and terminal state
   E-->>R: structured evaluations
   R->>O: registry, summaries, and read-only evidence tools
-  O->>R: ParameterUpdatePlan(base=vN)
-  R->>R: validate freshness, ids, and frozen flags
+  O->>R: OptimizationDecision(update + next parents/tasks)
+  R->>R: validate parameters, lanes, and eligible state ids
   R->>S: atomically commit state vN+1
 ```
 
-The relative-reflection implementation deliberately produces a semantic update rather than forcing a scalar advantage. The consumer is another language-model Agent, so high-bandwidth textual comparisons may carry useful information that a single number cannot. Scalar and hybrid Optimizers can still implement the same contract later.
+The relative-reflection implementation deliberately produces a semantic update rather than forcing a scalar advantage. The consumer is another language-model Agent, so high-bandwidth textual comparisons may carry useful information that a single number cannot. It also chooses the next solution-state parent independently for every lane. Scalar and hybrid Optimizers can still implement the same contract later.
 
 ## Package boundaries
 
 | Package | Owns | Does not own |
 |---|---|---|
-| `core-optimization` | parameter, exposure, evaluation, update, and Optimizer registry contracts | domain parameter ids or Agent prompts |
+| `core-optimization` | parameter, exposure, evaluation, eligible-state, rollout-directive, update, and Optimizer registry contracts | domain parameter ids, Loss semantics, or Agent prompts |
+| `core-training-runtime` | concurrent Rollout execution, Evaluation ordering, Optimizer invocation, atomic state transition, Epoch lifecycle, and cleanup hooks | Lean, theorem obligations, proof verdicts, domain budgets, or acceptance semantics |
 | `optimizer-relative-reflection` | autonomous evidence inspection and semantic update proposal | task acceptance or domain hints |
 | `core-state-git` | Git-backed insight and parameter-transition provenance | proof semantics |
 | `core-telemetry` | bounded DSH trace projection and exact token dimensions | training policy |
@@ -178,7 +182,8 @@ Implemented now:
 - exact context exposure snapshots;
 - structured evaluations and bounded evidence tools;
 - atomic subset updates with stale/frozen validation;
-- replaceable Optimizer providers and Git provenance.
+- replaceable Optimizer providers, validated per-lane parent/task scheduling, and Git provenance.
+- a domain-neutral Training Runtime with typed hooks and guaranteed Epoch cleanup.
 
 Deferred until experiments justify them:
 

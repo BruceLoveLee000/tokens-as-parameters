@@ -16,7 +16,7 @@ Tokens as Parameters 是一个实验性研究系统，用于验证：经过证�
 
 研究预览版。第一版有意限定为**仅支持实验模式**：只运行仓库内版本化的不可变 Case；每次调用都会物化新的 Run 专属 Git 工作区；不会修改 Case，也不会把结果自动合回 Case。针对用户指定工作区的生产模式推迟到 [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)。
 
-第一套 DSH 原生形式化证明系统已经重构为相互独立的 Core、Formal、Lean、Tool 与 Bundle Workspace Package，目标是 DSH `0.1.1-rc.2` 公开扩展接口。系统包含隔离的并行 Prover、Verifier 门控的 Git Checkpoint、可替换的 Token Optimizer、声明级语义合并、持久 Run 证据以及最终白盒审查。
+第一套 DSH 原生形式化证明系统已经重构为相互独立的 Core、Formal、Lean、Tool 与 Bundle Workspace Package，目标是 DSH `0.1.1-rc.2` 公开扩展接口。领域无关的 Core Training Runtime 驱动可替换的 Prover、Loss 与 Optimizer Plugin；Formal Adapter 增加隔离搜索状态、绑定 Commit 的逐 Rollout Lean + 白盒反馈、Optimizer 选择的 Git 父状态以及持久 Run 证据。
 
 ## 核心研究问题
 
@@ -26,6 +26,7 @@ Tokens as Parameters 是一个实验性研究系统，用于验证：经过证�
 
 - 基于 DSH 官方 Code Agent 和 Agent Loop 的原生编排；
 - `packages/core/optimization` 内核：领域 Agent 注册版本化文本参数，逐实例选择是否接受反馈，记录精确上下文暴露，并接收可替换 Optimizer 的原子语义更新；
+- `packages/core/training-runtime` 循环：组合 Rollout、Evaluation、Optimization、状态应用与有保证的 Epoch 清理，不导入 Formal 或 Lean 语义；
 - 多路隔离推理轨迹与持久 Run 身份；
 - Verifier 门控的受信进度和 reward hacking 防御；
 - 作为方向性文本更新的跨轨迹反思；
@@ -54,13 +55,22 @@ dsh web
 
 集成层会把这个约定转换成模型可见的 `chip_proof({ case_id })` Tool。Runtime 只接受精确注册的 Case id，不接受任意工作区路径。它会检查 Case 已提交，把 Case 复制到 `.tokens-as-parameters/runs/<runId>/workspace`，再次校验锁定 Hash，并在任何 Prover 启动前初始化新的 Git Baseline。官方 DSH Session UI 继续承担轨迹展示；Bundle 还会为每个 Run 持久化 `run.json` 与 `events.jsonl`。
 
+Lean 依赖包只能通过本地共享缓存复用；缓存键由锁定的 Lake manifest、toolchain、lakefile 和声明的外部依赖提交共同确定。证明构建产物不会跨 Run 共享。
+
 进一步阅读：[Core 架构与 Optimizer Provider 契约](docs/zh-CN/architecture/token-optimization-core.md)、[Bundle 指南](packages/bundle/formal-proof/README.zh-CN.md)、[形式化证明架构](docs/zh-CN/architecture/dsh-formal-proof-bundle.md)和 [FDIV 复现实验协议](experiments/fdiv-reproduction/README.zh-CN.md)。
+
+第一个公开的端到端 Optimizer Showcase 从零开始，经过 7 个 Epoch 和 6 次比较式反思，
+关闭了 FDIV 顶层定理。可阅读具有明确结论边界的
+[案例结果](experiments/fdiv-raw-top1-showcase/results/2026-09-13-deepseek-v4-flash/README.zh-CN.md)，
+并检查可再分发的 Case 和参考证明。该单次 Run 是机制证据，不是新框架优于 SpecRefine
+的统计结论。
 
 ## 下一步研究工作
 
-- 使用打包后的 Bundle 完整复跑已完成许可证确认的 FDIV R14 Checkpoint；
+- 在公开 raw-top1 FDIV Case 上进行条件对齐、多 Seed 的重复消融实验；
+- 发布经过脱敏的事件级证据，同时避免泄漏本机路径或凭据；
 - 增加面向未来 Reward 的上下文整合，而不是普通摘要；
-- 对单路、独立并行、自反思、组间反思、持久 Insight、上下文整合执行等预算消融实验。
+- 对 Prover、Loss、Optimizer、父状态选择、反思和持久 Insight 执行等预算消融实验。
 - 仅在实验链路稳定后增加用户工作区生产模式（[Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)）。
 
 ## 仓库目录

@@ -16,7 +16,7 @@ Not every token is a parameter. A token becomes parameter-like when it is optimi
 
 Research preview. The first release is intentionally **experiment-only**. It runs repository-versioned immutable Cases, materializes a fresh Run-owned Git workspace for each invocation, and never edits or merges back into the Case. Production operation on user-selected workspaces is deferred to [Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4).
 
-The DSH-native formal-proof system is a workspace of independent Core, Formal, Lean, Tool, and Bundle packages targeting the `0.1.1-rc.2` public extension APIs. It provides isolated parallel provers, verifier-gated Git checkpoints, a replaceable token Optimizer, declaration-level consolidation, durable run evidence, and final white-box review.
+The DSH-native formal-proof system is a workspace of independent Core, Formal, Lean, Tool, and Bundle packages targeting the `0.1.1-rc.2` public extension APIs. A domain-neutral Core Training Runtime drives replaceable Prover, Loss, and Optimizer plugins; Formal adapters add isolated search states, commit-bound Lean plus white-box feedback, optimizer-selected Git parents, and durable run evidence.
 
 ## Research question
 
@@ -26,6 +26,7 @@ Given fixed model weights, can a verifier-guided optimizer update persistent tex
 
 - DSH-native orchestration over the official Code Agent and Agent Loop.
 - A `packages/core/optimization` kernel where domain Agents register versioned text parameters, select feedback eligibility per instance, record exact context exposure, and accept atomic semantic updates from replaceable Optimizers.
+- A `packages/core/training-runtime` loop that composes Rollout, Evaluation, Optimization, state application, and guaranteed Epoch cleanup without importing Formal or Lean semantics.
 - Parallel, isolated reasoning trajectories with persistent run identity.
 - Verifier-gated trusted progress and reward-hacking defenses.
 - Comparative reflection as a directional textual update.
@@ -54,13 +55,23 @@ Launch DSH from this checkout so the default Case catalog resolves to `./benchma
 
 The integration translates this convention into the model-facing `chip_proof({ case_id })` tool. The Runtime accepts only an exact registered Case id—not an arbitrary workspace path. It checks that the Case is committed, copies it to `.tokens-as-parameters/runs/<runId>/workspace`, validates the locked hashes again, and initializes a new Git baseline before any Prover starts. The official DSH Session UI remains the trajectory surface; the Bundle additionally persists `run.json` and `events.jsonl` for every Run.
 
+Lean dependency packages are reused only through a local cache fingerprinted by the locked Lake manifest, toolchain, lakefile, and declared external dependency commits. Proof build outputs are never shared across Runs.
+
 See the [Core architecture and Optimizer provider contract](docs/en/architecture/token-optimization-core.md), [Bundle guide](packages/bundle/formal-proof/README.md), [formal architecture](docs/en/architecture/dsh-formal-proof-bundle.md), and [FDIV reproduction protocol](experiments/fdiv-reproduction/README.md).
+
+The first public end-to-end Optimizer showcase closed a from-zero FDIV top
+theorem after seven Epochs and six comparative reflections. Read the bounded
+[case-study result](experiments/fdiv-raw-top1-showcase/results/2026-09-13-deepseek-v4-flash/README.md)
+and inspect its redistributable Case and reference proof. This single Run is
+mechanism evidence, not a statistical claim that the framework outperforms
+SpecRefine.
 
 ## Next research work
 
-- Run the licensed FDIV R14 checkpoint end to end through the packaged Bundle.
+- Repeat the public raw-top1 FDIV study under aligned ablations and multiple seeds.
+- Publish sanitized event-level evidence without leaking local paths or credentials.
 - Add reward-oriented context consolidation rather than generic summarization.
-- Execute equal-budget ablations across single-agent, independent-parallel, self-reflection, group-reflection, persistent-insight, and consolidation conditions.
+- Execute equal-budget ablations across Prover, Loss, Optimizer, parent-selection, reflection, and persistent-Insight conditions.
 - Add user-workspace production mode only after the experiment path is stable ([Issue #4](https://github.com/BruceLoveLee000/tokens-as-parameters/issues/4)).
 
 ## Repository map

@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { copyFile, mkdir, readdir, readFile } from 'node:fs/promises'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context, Service } from '@deepseek-ai/cordis'
-import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import { installModelSelection, type Agent, type AgentHandle } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-subprocess'
@@ -13,23 +13,25 @@ import type OptimizationService from '@tokens-as-parameters/core-optimization'
 import {
   applyParameterUpdatePlan,
   createTextParameterContextSnapshot,
-  neutralParameterUpdatePlan,
+  neutralOptimizationDecision,
   requireTextParameter,
   type OptimizationCapture,
+  type OptimizationDecision,
   type OptimizationLane,
-  type ParameterUpdatePlan,
+  type OptimizationStateRef,
+  type RolloutDirective,
   type TextParameterState,
   type TraceEntry,
 } from '@tokens-as-parameters/core-optimization'
+import { runTrainingLoop } from '@tokens-as-parameters/core-training-runtime'
 import {
   RUN_SCHEMA_VERSION,
   StartProofExperimentSchema,
-  type CaseManifest,
   type ExperimentCaseSummary,
   type LaneEvidence,
+  type ProofLossReport,
   type ProofReceipt,
   type ProofRunSnapshot,
-  type WhiteboxReview,
 } from '@tokens-as-parameters/proof-contracts'
 import {
   ProofRunsProjectionSchema,
@@ -40,7 +42,6 @@ import { DshCommandRunner, GitState } from '@tokens-as-parameters/core-state-git
 import {
   hashFile,
   loadCaseManifest,
-  resolveInside,
   type ResolvedCase,
 } from '@tokens-as-parameters/proof-contracts/case-manifest'
 import {
@@ -49,18 +50,19 @@ import {
 } from '@tokens-as-parameters/proof-contracts/experiment-catalog'
 import type ProofVerificationService from '@tokens-as-parameters/proof-verification'
 import type { ProofVerifier } from '@tokens-as-parameters/proof-verification'
-import type ProofRoleService from '@tokens-as-parameters/proof-roles'
-import {
-  createFormalProverParameterState,
-  FORMAL_PROVER_MEMORY_PARAMETER_ID,
-  FORMAL_PROVER_PLAN_PARAMETER_ID,
-  formalProverRouteParameterId,
-} from '@tokens-as-parameters/proof-roles'
+import type ProofAgentService from '@tokens-as-parameters/proof-agent'
+import type { ProofAgentProvider } from '@tokens-as-parameters/proof-agent'
+import type ProofLossService from '@tokens-as-parameters/proof-loss'
+import type {
+  ProofLossEvaluation,
+  ProofLossJudgeCapture,
+  ProofLossProvider,
+} from '@tokens-as-parameters/proof-loss'
 import type ProofObserverService from '@tokens-as-parameters/proof-observer'
 import {
   emptyTokenUsage,
   lastTurnReason,
-  sessionTokens,
+  sessionSteps,
   sessionTrace,
   sessionTraceTail,
   sessionUsage,
@@ -90,18 +92,23 @@ interface RunRecord {
   task: Promise<void>
 }
 
-interface LaneRuntime {
-  evidence: LaneEvidence
+type LaneCandidateEvidence = Omit<LaneEvidence, 'receipt' | 'loss'> & { commit: string }
+
+interface LaneCandidateRuntime {
+  candidate: LaneCandidateEvidence
   baseCommit: string
   worktree: string
   handle: AgentHandle
   detachObserver: () => void
 }
 
-interface ConsolidationResult {
-  commit: string
-  receipt: ProofReceipt
-  worktree: string
+interface LaneRuntime extends LaneCandidateRuntime {
+  evidence: LaneEvidence
+}
+
+interface ProofTrainingState {
+  parameters: TextParameterState
+  nextRollouts: RolloutDirective[]
 }
 
 function runId(caseId: string): string {
@@ -167,36 +174,7 @@ function isProofRunSnapshot(value: unknown): value is ProofRunSnapshot {
     && typeof candidate.config === 'object'
 }
 
-async function mapLimit<T, R>(
-  values: readonly T[],
-  limit: number,
-  operation: (value: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const output = new Array<R>(values.length)
-  let cursor = 0
-  const workers = Array.from({ length: Math.min(limit, values.length) }, async () => {
-    while (cursor < values.length) {
-      const index = cursor
-      cursor += 1
-      const value = values[index]
-      if (value !== undefined) output[index] = await operation(value, index)
-    }
-  })
-  await Promise.all(workers)
-  return output
-}
-
-function proofTask(manifest: CaseManifest): string {
-  return [
-    `Prove the locked formal claim ${manifest.lean.theoremName} in ${manifest.lean.proofFile}.`,
-    `The claim scope is ${manifest.claimScope}.`,
-    `Open obligations: ${manifest.lean.obligations.join(', ')}. Use lean_check_candidate to measure actual status.`,
-    'Work directly in the provided isolated Git worktree. Preserve all locked inputs and record evidence-backed insights as the proof state changes.',
-  ].join('\n')
-}
-
 function optimizationLane(evidence: LaneEvidence): OptimizationLane {
-  const receipt = evidence.receipt
   return {
     rolloutId: evidence.rolloutId,
     sessionId: evidence.sessionId,
@@ -207,22 +185,17 @@ function optimizationLane(evidence: LaneEvidence): OptimizationLane {
     contextSnapshot: evidence.contextSnapshot,
     evaluation: {
       objective: 'close-verifier-declared-proof-obligations',
-      verdict: receipt.finalAccepted ? 'accepted' : receipt.checkpointable ? 'progress' : 'rejected',
-      summary: `${receipt.obligationsClosed}/${receipt.obligationsTotal} obligations are checker-trusted`,
-      metrics: {
-        obligationsClosed: receipt.obligationsClosed,
-        obligationsTotal: receipt.obligationsTotal,
-        checkpointable: receipt.checkpointable,
-        finalAccepted: receipt.finalAccepted,
-      },
-      evidence: receipt,
+      verdict: evidence.loss.verdict,
+      summary: evidence.loss.summary,
+      metrics: evidence.loss.metrics,
+      evidence: evidence.loss,
     },
     traceTail: evidence.traceTail,
   }
 }
 
 export default class ProofRunService extends Service {
-  static inject = ['agents', 'subprocess', 'optimization', 'proofVerification', 'proofRoles', 'proofObserver']
+  static inject = ['agents', 'subprocess', 'optimization', 'proofVerification', 'proofAgents', 'proofLoss', 'proofObserver']
 
   private readonly records = new Map<string, RunRecord>()
   private readonly runner: DshCommandRunner
@@ -232,7 +205,8 @@ export default class ProofRunService extends Service {
   constructor(
     ctx: Context,
     config: Config = {},
-    private readonly roles: ProofRoleService = ctx.proofRoles,
+    private readonly proofAgents: ProofAgentService = ctx.proofAgents,
+    private readonly proofLoss: ProofLossService = ctx.proofLoss,
     private readonly optimization: OptimizationService = ctx.optimization,
     private readonly verification: ProofVerificationService = ctx.proofVerification,
     private readonly observer: ProofObserverService = ctx.proofObserver,
@@ -282,6 +256,14 @@ export default class ProofRunService extends Service {
     return this.verification.require(record.snapshot.config.search.verifier)
   }
 
+  private prover(record: RunRecord): ProofAgentProvider {
+    return this.proofAgents.require(record.snapshot.config.search.prover)
+  }
+
+  private lossProvider(record: RunRecord): ProofLossProvider {
+    return this.proofLoss.require(record.snapshot.config.search.loss)
+  }
+
   async list(): Promise<ProofRunSnapshot[]> {
     const snapshots = new Map<string, ProofRunSnapshot>()
     for (const snapshot of await this.readHistoricalSnapshots()) snapshots.set(snapshot.runId, snapshot)
@@ -314,6 +296,7 @@ export default class ProofRunService extends Service {
     const config = StartProofExperimentSchema.parse(input)
     const catalogCase = await resolveExperimentCase(this.config.benchmarkRoot, config.caseId)
     const sourceCommit = await this.git.requireCleanCommit(catalogCase.resolvedCase.root)
+    await this.verifyExternalDependencies(catalogCase.resolvedCase)
     const id = runId(catalogCase.caseId)
     const root = resolve(this.config.defaultRunRoot, id)
     const workspace = join(root, 'workspace')
@@ -325,7 +308,7 @@ export default class ProofRunService extends Service {
     )
     const now = new Date().toISOString()
     const rolloutIds = Array.from({ length: config.search.rollouts }, (_, index) => `r${index + 1}`)
-    const parameterState = createFormalProverParameterState(
+    const parameterState = this.proofAgents.require(config.search.prover).createParameterState(
       `${id}/initial`,
       rolloutIds,
       config.search.parameterFeedback,
@@ -385,6 +368,10 @@ export default class ProofRunService extends Service {
         sourceCommit,
         baselineCommit: baseline,
         workspace: record.snapshot.experiment.workspace,
+        externalDependencies: resolvedCase.manifest.externalDependencies.map(dependency => ({
+          name: dependency.name,
+          commit: dependency.commit,
+        })),
       },
     })
     record.task = this.execute(record, owner)
@@ -417,6 +404,12 @@ export default class ProofRunService extends Service {
     await this.transition(record, 'PREPARING', 'validating the frozen baseline')
     const baselineWorktree = this.worktreePath(record.snapshot.runId, 0, 'baseline')
     await this.git.createWorktree(record.resolvedCase.root, record.snapshot.trustedCommit, baselineWorktree, record.controller.signal)
+    await this.verifier(record).prepareBaselineEnvironment?.(
+      record.resolvedCase,
+      baselineWorktree,
+      this.config.defaultRunRoot,
+      record.controller.signal,
+    )
     let baselineReceipt: ProofReceipt
     try {
       baselineReceipt = await this.verifier(record).check(
@@ -424,6 +417,7 @@ export default class ProofRunService extends Service {
         baselineWorktree,
         0,
         record.controller.signal,
+        record.snapshot.trustedCommit,
         record.snapshot.trustedCommit,
       )
     } catch (error) {
@@ -437,6 +431,7 @@ export default class ProofRunService extends Service {
       'signature',
       'locked-input',
       'unauthorized-change',
+      'candidate-state',
       'build',
     ])
     if (
@@ -447,11 +442,27 @@ export default class ProofRunService extends Service {
     ) {
       throw new Error('frozen baseline failed the trusted preflight checker')
     }
+    await this.verifier(record).prepareRunEnvironment?.(
+      record.resolvedCase,
+      baselineWorktree,
+      record.directory,
+      record.controller.signal,
+    )
     record.snapshot.trustedObligationsClosed = baselineReceipt.obligationsClosed
     await this.persist(record)
     if (baselineReceipt.finalAccepted) {
       try {
-        await this.acceptFinalCandidate(record, owner, baselineWorktree, baselineReceipt)
+        const baselineLoss = this.proofLoss.require('lean-rule-only').score({
+          candidateCommit: record.snapshot.trustedCommit,
+          receipt: baselineReceipt,
+          baselineClosed: 0,
+        })
+        await this.acceptFinalCandidate(
+          record,
+          record.snapshot.trustedCommit,
+          baselineReceipt,
+          baselineLoss,
+        )
       } finally {
         if (!this.config.preserveWorktrees) await this.git.removeWorktree(record.resolvedCase.root, baselineWorktree)
       }
@@ -463,146 +474,214 @@ export default class ProofRunService extends Service {
       { length: record.snapshot.config.search.rollouts },
       (_, index) => `r${index + 1}`,
     )
-    let parameterState = record.snapshot.parameterState
-    let epoch = 0
-    while (true) {
-      epoch += 1
-      this.throwIfStopped(record)
-      if (Date.now() - started > record.snapshot.config.search.maxWallTimeSeconds * 1_000) {
-        await this.finalize(record, 'UNKNOWN', 'wall-time budget exhausted')
-        return
-      }
-      if (record.snapshot.totalTokens >= record.snapshot.config.search.totalTokenBudget) {
-        await this.finalize(record, 'UNKNOWN', 'total token budget exhausted')
-        return
-      }
-      record.snapshot.epoch = epoch
-      record.snapshot.lanes = []
-      await this.transition(record, 'PROVING', `starting epoch ${epoch}`)
-      const lanes = await mapLimit(
-        rolloutIds,
-        record.snapshot.config.search.maxParallel,
-        rolloutId => this.runLane(record, owner, epoch, rolloutId, parameterState),
-      )
-      record.snapshot.lanes = lanes.map(lane => lane.evidence)
-      lanes.forEach(lane => this.accountSessionUsage(
-        record,
-        lane.evidence.sessionId,
-        lane.evidence.tokenUsage,
-      ))
-      await this.persist(record)
-
-      const finalLane = lanes
-        .filter(lane => lane.evidence.receipt.finalAccepted)
-        .sort((left, right) => right.evidence.receipt.obligationsClosed - left.evidence.receipt.obligationsClosed)[0]
-      if (finalLane !== undefined) {
-        try {
-          await this.acceptFinalCandidate(record, owner, finalLane.worktree, finalLane.evidence.receipt)
-        } finally {
-          await this.disposeLanes(record, lanes)
-        }
-        return
-      }
-
-      await this.transition(record, 'CONSOLIDATING', `merging checker-trusted progress from epoch ${epoch}`)
-      const consolidation = await this.consolidate(record, epoch, lanes)
-      if (consolidation.receipt.checkpointable) {
-        const obligationProgress = consolidation.receipt.obligationsClosed > record.snapshot.trustedObligationsClosed
-        record.snapshot.trustedCommit = consolidation.commit
-        if (obligationProgress) {
-          record.snapshot.trustedObligationsClosed = consolidation.receipt.obligationsClosed
-        }
-        await this.observer.emit({
-          runId: record.snapshot.runId,
-          type: obligationProgress ? 'proof/trusted-baseline-advanced' : 'proof/helper-checkpoint-advanced',
-          state: record.snapshot.state,
-          message: obligationProgress
-            ? `trusted progress advanced to ${consolidation.receipt.obligationsClosed}/${consolidation.receipt.obligationsTotal}`
-            : `checker-clean helper checkpoint advanced with ${consolidation.receipt.checkpointDeclarations.length} declaration(s)`,
-          epoch,
-          data: {
-            commit: consolidation.commit,
-            closed: consolidation.receipt.closedObligations,
-            checkpointDeclarations: consolidation.receipt.checkpointDeclarations,
-          },
-        })
-      }
-      if (consolidation.receipt.finalAccepted) {
-        try {
-          await this.acceptFinalCandidate(record, owner, consolidation.worktree, consolidation.receipt)
-        } finally {
-          await this.disposeLanes(record, lanes)
-          if (!this.config.preserveWorktrees) {
-            await this.git.removeWorktree(record.resolvedCase.root, consolidation.worktree)
+    const initialState: ProofTrainingState = {
+      parameters: record.snapshot.parameterState,
+      nextRollouts: rolloutIds.map(rolloutId => ({
+        rolloutId,
+        baseStateId: record.snapshot.trustedCommit,
+        task: 'Start from the common controller-verified baseline and explore an independent proof route.',
+      })),
+    }
+    await runTrainingLoop<ProofTrainingState, LaneCandidateRuntime, LaneRuntime, OptimizationDecision, void>({
+      initialState,
+      rolloutIds,
+      maxParallel: record.snapshot.config.search.maxParallel,
+      signal: record.controller.signal,
+      hooks: {
+        beforeEpoch: async ({ epoch }) => {
+          this.throwIfStopped(record)
+          if (Date.now() - started > record.snapshot.config.search.maxWallTimeSeconds * 1_000) {
+            await this.finalize(record, 'UNKNOWN', 'wall-time budget exhausted')
+            return { kind: 'complete', result: undefined }
           }
-        }
-        return
-      }
-      const plan = record.snapshot.config.search.reflection.enabled
-        ? await this.runReflection(record, owner, epoch, lanes, parameterState)
-        : neutralParameterUpdatePlan(parameterState)
-      const nextParameterState = applyParameterUpdatePlan(
-        parameterState,
-        plan,
-        `${record.snapshot.runId}/epoch-${epoch}`,
-      )
-      record.snapshot.latestReflection = plan
-      record.snapshot.parameterState = nextParameterState
-      await this.observer.emit({
-        runId: record.snapshot.runId,
-        type: 'parameter/update-applied',
-        state: record.snapshot.state,
-        message: `epoch ${epoch} atomically updated ${plan.updates.length} text parameter(s)`,
-        epoch,
-        data: {
-          fromVersion: parameterState.version,
-          toVersion: nextParameterState.version,
-          parameterIds: plan.updates.map(update => update.parameterId),
+          if (record.snapshot.totalTokens >= record.snapshot.config.search.totalTokenBudget) {
+            await this.finalize(record, 'UNKNOWN', 'total token budget exhausted')
+            return { kind: 'complete', result: undefined }
+          }
+          record.snapshot.epoch = epoch
+          record.snapshot.lanes = []
+          await this.transition(record, 'PROVING', `starting epoch ${epoch}`)
+          return { kind: 'continue' }
         },
-      })
-      if (record.snapshot.config.search.reflection.enabled) {
-        const stateWorktree = this.worktreePath(record.snapshot.runId, epoch, 'reflection-state')
-        await this.git.createWorktree(
+        rollout: async ({ epoch, state }, rolloutId) => {
+          const directive = state.nextRollouts.find(item => item.rolloutId === rolloutId)
+          if (directive === undefined) throw new Error(`optimizer did not schedule rollout ${rolloutId}`)
+          return this.runLane(record, owner, epoch, rolloutId, state.parameters, directive)
+        },
+        evaluate: ({ epoch }, rolloutId, candidate) => (
+          this.evaluateLane(record, owner, epoch, rolloutId, candidate)
+        ),
+        afterEvaluation: async ({ epoch }, group) => {
+          const lanes = group.map(item => item.evaluation)
+          record.snapshot.lanes = lanes.map(lane => lane.evidence)
+          lanes.forEach(lane => this.accountSessionUsage(
+            record,
+            lane.evidence.sessionId,
+            lane.evidence.tokenUsage,
+          ))
+          await this.persist(record)
+          const finalLane = lanes
+            .filter(lane => lane.evidence.loss.verdict === 'solved')
+            .sort((left, right) => right.evidence.receipt.obligationsClosed - left.evidence.receipt.obligationsClosed)[0]
+          if (finalLane !== undefined) {
+            await this.acceptFinalCandidate(
+              record,
+              finalLane.candidate.commit,
+              finalLane.evidence.receipt,
+              finalLane.evidence.loss,
+            )
+            return { kind: 'complete', result: undefined }
+          }
+          await this.advanceTrustedProgress(record, epoch, lanes)
+          return { kind: 'continue' }
+        },
+        optimize: async ({ epoch, state }, group) => {
+          const lanes = group.map(item => item.evaluation)
+          const eligibleStates = this.eligibleStates(record, lanes)
+          const optimizationLanes = lanes.map(lane => optimizationLane(lane.evidence))
+          return record.snapshot.config.search.reflection.enabled
+            ? this.runReflection(record, owner, epoch, lanes, state.parameters, eligibleStates)
+            : neutralOptimizationDecision({
+                parameters: state.parameters,
+                lanes: optimizationLanes,
+                eligibleStates,
+              })
+        },
+        apply: ({ epoch, state }, group, decision) => (
+          this.applyOptimizationDecision(
+            record,
+            epoch,
+            group.map(item => item.evaluation),
+            state,
+            decision,
+          )
+        ),
+        finishEpoch: async (_context, candidates) => {
+          await this.disposeLanes(record, candidates)
+        },
+      },
+    })
+  }
+
+  private async advanceTrustedProgress(
+    record: RunRecord,
+    epoch: number,
+    lanes: readonly LaneRuntime[],
+  ): Promise<void> {
+    const bestVerified = lanes
+      .filter(lane => (
+        lane.evidence.loss.candidateStatus === 'VERIFIED'
+        && lane.evidence.loss.candidateCommit === lane.candidate.commit
+        && lane.evidence.receipt.candidateCommit === lane.candidate.commit
+      ))
+      .sort((left, right) => right.evidence.receipt.obligationsClosed - left.evidence.receipt.obligationsClosed)[0]
+    if (
+      bestVerified === undefined
+      || bestVerified.evidence.receipt.obligationsClosed <= record.snapshot.trustedObligationsClosed
+    ) return
+    record.snapshot.trustedCommit = bestVerified.candidate.commit
+    record.snapshot.trustedObligationsClosed = bestVerified.evidence.receipt.obligationsClosed
+    await this.observer.emit({
+      runId: record.snapshot.runId,
+      type: 'proof/trusted-baseline-advanced',
+      state: record.snapshot.state,
+      message: `trusted progress advanced to ${record.snapshot.trustedObligationsClosed}/${record.snapshot.obligationsTotal} from commit-bound Loss evidence`,
+      epoch,
+      data: {
+        commit: record.snapshot.trustedCommit,
+        sourceRollout: bestVerified.evidence.rolloutId,
+        loss: bestVerified.evidence.loss,
+      },
+    })
+  }
+
+  private eligibleStates(record: RunRecord, lanes: readonly LaneRuntime[]): OptimizationStateRef[] {
+    return [
+      {
+        id: record.snapshot.trustedCommit,
+        status: 'VERIFIED' as const,
+        summary: `${record.snapshot.trustedObligationsClosed}/${record.snapshot.obligationsTotal} obligations in the controller-trusted baseline`,
+      },
+      ...lanes.flatMap(lane => lane.evidence.loss.candidateStatus === 'INVALID'
+        ? []
+        : [{
+            id: lane.candidate.commit,
+            status: lane.evidence.loss.candidateStatus,
+            summary: lane.evidence.loss.summary,
+            rolloutId: lane.evidence.rolloutId,
+          }]),
+    ].filter((state, index, values) => values.findIndex(item => item.id === state.id) === index)
+  }
+
+  private async applyOptimizationDecision(
+    record: RunRecord,
+    epoch: number,
+    lanes: readonly LaneRuntime[],
+    trainingState: ProofTrainingState,
+    decision: OptimizationDecision,
+  ): Promise<ProofTrainingState> {
+    const plan = decision.parameterUpdate
+    const nextParameterState = applyParameterUpdatePlan(
+      trainingState.parameters,
+      plan,
+      `${record.snapshot.runId}/epoch-${epoch}`,
+    )
+    record.snapshot.latestReflection = plan
+    record.snapshot.latestOptimization = decision
+    record.snapshot.parameterState = nextParameterState
+    await this.observer.emit({
+      runId: record.snapshot.runId,
+      type: 'parameter/update-applied',
+      state: record.snapshot.state,
+      message: `epoch ${epoch} atomically updated ${plan.updates.length} text parameter(s)`,
+      epoch,
+      data: {
+        fromVersion: trainingState.parameters.version,
+        toVersion: nextParameterState.version,
+        parameterIds: plan.updates.map(update => update.parameterId),
+      },
+    })
+    if (record.snapshot.config.search.reflection.enabled) {
+      const stateWorktree = this.worktreePath(record.snapshot.runId, epoch, 'reflection-state')
+      await this.git.createWorktree(
+        record.resolvedCase.root,
+        record.snapshot.trustedCommit,
+        stateWorktree,
+        record.controller.signal,
+      )
+      try {
+        const state = await this.git.createReflectionState(
           record.resolvedCase.root,
-          record.snapshot.trustedCommit,
           stateWorktree,
+          record.snapshot.runId,
+          epoch,
+          record.snapshot.trustedCommit,
+          lanes.map(lane => lane.candidate.commit),
+          decision,
+          nextParameterState,
           record.controller.signal,
         )
-        try {
-          const state = await this.git.createReflectionState(
-            record.resolvedCase.root,
-            stateWorktree,
-            record.snapshot.runId,
-            epoch,
-            record.snapshot.trustedCommit,
-            lanes.flatMap(lane => lane.evidence.commit === undefined ? [] : [lane.evidence.commit]),
-            plan,
-            nextParameterState,
-            record.controller.signal,
-          )
-          record.snapshot.searchBaseCommit = state.commit
-          await this.observer.emit({
-            runId: record.snapshot.runId,
-            type: 'reflection/state-committed',
-            state: record.snapshot.state,
-            message: `epoch ${epoch} reflection became the next search-base node`,
-            epoch,
-            data: { commit: state.commit, path: state.path },
-          })
-        } finally {
-          if (!this.config.preserveWorktrees) {
-            await this.git.removeWorktree(record.resolvedCase.root, stateWorktree)
-          }
+        record.snapshot.searchBaseCommit = decision.nextRollouts[0]?.baseStateId ?? record.snapshot.trustedCommit
+        await this.observer.emit({
+          runId: record.snapshot.runId,
+          type: 'reflection/state-committed',
+          state: record.snapshot.state,
+          message: `epoch ${epoch} reflection scheduled ${decision.nextRollouts.length} next rollouts`,
+          epoch,
+          data: { commit: state.commit, path: state.path, nextRollouts: decision.nextRollouts },
+        })
+      } finally {
+        if (!this.config.preserveWorktrees) {
+          await this.git.removeWorktree(record.resolvedCase.root, stateWorktree)
         }
-      } else {
-        record.snapshot.searchBaseCommit = record.snapshot.trustedCommit
       }
-      parameterState = nextParameterState
-      await this.persist(record)
-      await this.disposeLanes(record, lanes)
-      if (!this.config.preserveWorktrees) {
-        await this.git.removeWorktree(record.resolvedCase.root, consolidation.worktree)
-      }
+    } else {
+      record.snapshot.searchBaseCommit = decision.nextRollouts[0]?.baseStateId ?? record.snapshot.trustedCommit
+    }
+    await this.persist(record)
+    return {
+      parameters: nextParameterState,
+      nextRollouts: decision.nextRollouts,
     }
   }
 
@@ -612,21 +691,25 @@ export default class ProofRunService extends Service {
     epoch: number,
     rolloutId: string,
     parameters: TextParameterState,
-  ): Promise<LaneRuntime> {
+    directive: RolloutDirective,
+  ): Promise<LaneCandidateRuntime> {
     const worktree = this.worktreePath(record.snapshot.runId, epoch, rolloutId)
-    const baseCommit = record.snapshot.searchBaseCommit
+    const baseCommit = directive.baseStateId
     await this.git.createWorktree(record.resolvedCase.root, baseCommit, worktree, record.controller.signal)
+    await this.verifier(record).hydrateRunEnvironment?.(
+      record.resolvedCase,
+      record.directory,
+      worktree,
+      record.controller.signal,
+    )
     const sessionId = SessionId(`${record.snapshot.runId}-e${epoch}-${rolloutId}`)
-    const routeParameterId = formalProverRouteParameterId(rolloutId)
-    const route = requireTextParameter(parameters, routeParameterId).content
+    const prover = this.prover(record)
+    const parameterIds = prover.parameterIdsForRollout(rolloutId)
+    const route = prover.route(parameters, rolloutId)
     const contextSnapshot = createTextParameterContextSnapshot({
       id: `${record.snapshot.runId}/epoch-${epoch}/${rolloutId}`,
       state: parameters,
-      parameterIds: [
-        FORMAL_PROVER_MEMORY_PARAMETER_ID,
-        FORMAL_PROVER_PLAN_PARAMETER_ID,
-        routeParameterId,
-      ],
+      parameterIds,
       metadata: {
         runId: record.snapshot.runId,
         epoch,
@@ -661,8 +744,16 @@ export default class ProofRunService extends Service {
       setup: agentCtx => {
         const agent = agentCtx.agent
         if (agent === undefined) throw new Error('DSH did not associate the unpublished prover agent')
+        installModelSelection(agentCtx, {
+          current: {
+            provider: record.snapshot.config.search.provider,
+            model: record.snapshot.config.search.model,
+            reasoningEffort: ReasoningEffortId(record.snapshot.config.search.reasoningEffort),
+          },
+          assembled: undefined,
+        })
         this.ctx.get('agentPresets')?.composeFrom(agentCtx, owner.ctx)
-        this.roles.installProver(agentCtx, {
+        prover.install(agentCtx, {
           agent,
           runId: record.snapshot.runId,
           epoch,
@@ -675,6 +766,7 @@ export default class ProofRunService extends Service {
           verifier: this.verifier(record),
           git: this.git,
           signal: record.controller.signal,
+          maxSteps: record.snapshot.config.search.maxStepsPerLane,
         })
       },
     })
@@ -689,103 +781,171 @@ export default class ProofRunService extends Service {
     })
     handle.agent.followup(createUserMessage({
       source: { kind: 'user' },
-      content: [{ type: 'text', text: proofTask(record.resolvedCase.manifest) }],
+      content: [{ type: 'text', text: prover.task(record.resolvedCase.manifest, rolloutId, directive.task) }],
     }))
     await handle.agent.whenIdle()
     while (
       !record.controller.signal.aborted
       && lastTurnReason(handle.agent.session.events) === 'max-tokens'
-      && sessionTokens(handle.agent.session.events) < record.snapshot.config.search.maxCumulativeTokensPerLane
+      && sessionSteps(handle.agent.session.events) < record.snapshot.config.search.maxStepsPerLane
     ) {
       handle.agent.followup(createUserMessage({
         source: { kind: 'user' },
         content: [{
           type: 'text',
-          text: 'The previous response ended at its per-request output boundary, while this lane still has cumulative budget. Continue in the same session from the current worktree and Lean state. Do not restart the proof from scratch.',
+          text: 'The previous response ended at its per-request output boundary while this rollout still has model-step depth. Continue in the same session from the current worktree and Lean state. Do not restart from scratch.',
         }],
       }))
       await handle.agent.whenIdle()
     }
-    const receipt = await this.verifier(record).check(
-      record.resolvedCase,
+    const commit = await this.git.commitSourceState(
       worktree,
-      record.snapshot.trustedObligationsClosed,
-      record.controller.signal,
-      baseCommit,
-    )
-    const commit = await this.git.commitPaths(
-      worktree,
-      record.resolvedCase.manifest.editableFiles,
-      `candidate(${rolloutId}): epoch ${epoch} closes ${receipt.obligationsClosed}/${receipt.obligationsTotal}`,
+      `candidate(${rolloutId}): epoch ${epoch} source state`,
       record.controller.signal,
     )
     const tokenUsage = sessionUsage(handle.agent.session.events)
-    const evidence: LaneEvidence = {
+    const candidate: LaneCandidateEvidence = {
       rolloutId,
       sessionId: String(sessionId),
       epoch,
       route,
       contextSnapshot,
+      baseCommit,
       commit,
+      steps: sessionSteps(handle.agent.session.events),
       tokens: tokenUsage.totalTokens,
       tokenUsage,
-      receipt,
       traceTail: sessionTraceTail(handle.agent.session.events),
     }
-    return { evidence, baseCommit, worktree, handle, detachObserver }
+    return { candidate, baseCommit, worktree, handle, detachObserver }
   }
 
-  private async consolidate(record: RunRecord, epoch: number, lanes: readonly LaneRuntime[]): Promise<ConsolidationResult> {
-    const rolloutId = 'consolidator'
-    const worktree = this.worktreePath(record.snapshot.runId, epoch, rolloutId)
-    await this.git.createWorktree(record.resolvedCase.root, record.snapshot.searchBaseCommit, worktree, record.controller.signal)
-    const proofRelative = record.resolvedCase.manifest.lean.proofFile
-    const proofPath = resolveInside(worktree, proofRelative)
-    let source = await readFile(proofPath, 'utf8')
-    let bestReceipt = await this.verifier(record).check(
-      record.resolvedCase,
-      worktree,
-      record.snapshot.trustedObligationsClosed,
-      record.controller.signal,
-      record.snapshot.searchBaseCommit,
-    )
-    const candidates = [...lanes].sort(
-      (left, right) => right.evidence.receipt.obligationsClosed - left.evidence.receipt.obligationsClosed,
-    )
-    for (const lane of candidates) {
-      if (!lane.evidence.receipt.checkpointable) continue
-      const newlyClosed = lane.evidence.receipt.closedObligations.filter(
-        name => !bestReceipt.closedObligations.includes(name),
-      )
-      const acceptedUnits = [...new Set([
-        ...newlyClosed,
-        ...lane.evidence.receipt.checkpointDeclarations,
-      ])]
-      if (acceptedUnits.length === 0) continue
-      const candidateSource = await readFile(resolveInside(lane.worktree, proofRelative), 'utf8')
-      const proposed = this.verifier(record).consolidate(source, candidateSource, acceptedUnits)
-      await writeFile(proofPath, proposed, 'utf8')
-      const receipt = await this.verifier(record).check(
-        record.resolvedCase,
-        worktree,
-        bestReceipt.obligationsClosed,
-        record.controller.signal,
-        record.snapshot.searchBaseCommit,
-      )
-      if (receipt.checkpointable || receipt.finalAccepted) {
-        source = proposed
-        bestReceipt = receipt
-      } else {
-        await writeFile(proofPath, source, 'utf8')
-      }
+  private async evaluateLane(
+    record: RunRecord,
+    owner: Agent,
+    epoch: number,
+    rolloutId: string,
+    candidate: LaneCandidateRuntime,
+  ): Promise<LaneRuntime> {
+    const provider = this.lossProvider(record)
+    const evaluation: ProofLossEvaluation = await provider.evaluate({
+      resolvedCase: record.resolvedCase,
+      worktree: candidate.worktree,
+      candidateCommit: candidate.candidate.commit,
+      baseCommit: candidate.baseCommit,
+      baselineClosed: record.snapshot.trustedObligationsClosed,
+      signal: record.controller.signal,
+      verifier: this.verifier(record),
+      review: receipt => this.runLossJudge(
+        record,
+        owner,
+        epoch,
+        rolloutId,
+        candidate.worktree,
+        provider,
+        receipt,
+      ),
+    })
+    if (
+      evaluation.receipt.candidateCommit !== candidate.candidate.commit
+      || evaluation.loss.candidateCommit !== candidate.candidate.commit
+    ) {
+      throw new Error(`loss provider ${provider.id} returned evidence for a different candidate commit`)
     }
-    const commit = await this.git.commitPaths(
-      worktree,
-      record.resolvedCase.manifest.editableFiles,
-      `consolidate: epoch ${epoch} trusted ${bestReceipt.obligationsClosed}/${bestReceipt.obligationsTotal}`,
-      record.controller.signal,
-    )
-    return { commit, receipt: bestReceipt, worktree }
+    return {
+      ...candidate,
+      evidence: {
+        ...candidate.candidate,
+        receipt: evaluation.receipt,
+        loss: evaluation.loss,
+      },
+    }
+  }
+
+  private async runLossJudge(
+    record: RunRecord,
+    owner: Agent,
+    epoch: number,
+    rolloutId: string,
+    worktree: string,
+    loss: ProofLossProvider,
+    receipt: ProofReceipt,
+  ): Promise<ReturnType<ProofLossJudgeCapture['review']>> {
+    if (!loss.requiresJudge) return undefined
+    if (loss.installJudge === undefined) throw new Error(`loss provider ${loss.id} requires a judge but did not install one`)
+    const sessionId = SessionId(`${record.snapshot.runId}-e${epoch}-${rolloutId}-loss`)
+    let capture: ProofLossJudgeCapture | undefined
+    const handle = await this.ctx.agents.create({
+      sessionId,
+      meta: {
+        cwd: worktree,
+        parentSession: owner.id,
+        origin: 'subagent',
+        delegationDepth: (owner.session.header.delegationDepth ?? 0) + 1,
+      },
+      agentOptions: {
+        provider: record.snapshot.config.search.provider,
+        model: record.snapshot.config.search.model,
+        maxTokens: record.snapshot.config.search.lossJudge.maxOutputTokensPerRequest,
+      },
+      signal: record.controller.signal,
+      setup: agentCtx => {
+        const agent = agentCtx.agent
+        if (agent === undefined) throw new Error('DSH did not associate the unpublished loss-judge agent')
+        installModelSelection(agentCtx, {
+          current: {
+            provider: record.snapshot.config.search.provider,
+            model: record.snapshot.config.search.model,
+            reasoningEffort: ReasoningEffortId(record.snapshot.config.search.reasoningEffort),
+          },
+          assembled: undefined,
+        })
+        this.ctx.get('agentPresets')?.composeFrom(agentCtx, owner.ctx)
+        capture = loss.installJudge?.(agentCtx, {
+          agent,
+          resolvedCase: record.resolvedCase,
+          receipt,
+          maxSteps: record.snapshot.config.search.lossJudge.maxSteps,
+        })
+      },
+    })
+    record.handles.add(handle)
+    record.snapshot.activeSessionIds.push(String(sessionId))
+    await this.persist(record)
+    const detach = this.observer.attachSession(handle.agent, {
+      runId: record.snapshot.runId,
+      epoch,
+      rolloutId: `${rolloutId}-loss`,
+      role: 'reviewer',
+    })
+    try {
+      handle.agent.followup(createUserMessage({
+        source: { kind: 'user' },
+        content: [{
+          type: 'text',
+          text: 'Inspect this rollout source and the rule-based receipt. Use read-only tools as needed, then submit the white-box loss component.',
+        }],
+      }))
+      await handle.agent.whenIdle()
+      if (capture?.review() === undefined && sessionSteps(handle.agent.session.events) < record.snapshot.config.search.lossJudge.maxSteps + 1) {
+        handle.agent.followup(createUserMessage({
+          source: { kind: 'user' },
+          content: [{
+            type: 'text',
+            text: 'Submit the best current white-box loss assessment now. Do not continue open-ended exploration.',
+          }],
+        }))
+        await handle.agent.whenIdle()
+      }
+      this.accountSessionUsage(record, String(sessionId), sessionUsage(handle.agent.session.events))
+      return capture?.review()
+    } finally {
+      detach()
+      record.handles.delete(handle)
+      record.snapshot.activeSessionIds = record.snapshot.activeSessionIds.filter(id => id !== String(sessionId))
+      await handle.dispose()
+      await this.persist(record)
+    }
   }
 
   private async runReflection(
@@ -794,7 +954,8 @@ export default class ProofRunService extends Service {
     epoch: number,
     lanes: LaneRuntime[],
     parameters: TextParameterState,
-  ): Promise<ParameterUpdatePlan> {
+    eligibleStates: OptimizationStateRef[],
+  ): Promise<OptimizationDecision> {
     await this.transition(record, 'REFLECTING', `comparing epoch ${epoch} trajectories`)
     const laneStateNodes = new Map(await Promise.all(lanes.map(async lane => [
       lane.evidence.rolloutId,
@@ -815,6 +976,15 @@ export default class ProofRunService extends Service {
       if (lane === undefined) throw new Error(`unknown rollout: ${rolloutId}`)
       return lane
     }
+    const requireVisibleCommit = (rolloutId: string, commit: string): LaneRuntime => {
+      const lane = requireLane(rolloutId)
+      const visible = new Set([
+        lane.baseCommit,
+        ...(laneStateNodes.get(rolloutId) ?? []).map(node => node.commit),
+      ])
+      if (!visible.has(commit)) throw new Error(`commit is not visible in rollout ${rolloutId}: ${commit}`)
+      return lane
+    }
     const handle = await this.ctx.agents.create({
       sessionId,
       meta: {
@@ -832,10 +1002,19 @@ export default class ProofRunService extends Service {
       setup: agentCtx => {
         const agent = agentCtx.agent
         if (agent === undefined) throw new Error('DSH did not associate the unpublished reflector agent')
+        installModelSelection(agentCtx, {
+          current: {
+            provider: record.snapshot.config.search.provider,
+            model: record.snapshot.config.search.model,
+            reasoningEffort: ReasoningEffortId(record.snapshot.config.search.reasoningEffort),
+          },
+          assembled: undefined,
+        })
         capture = optimizer.install(agentCtx, {
           agent,
           parameters,
           lanes: optimizationLanes,
+          eligibleStates,
           evidence: {
             async inspectParameterUsage(parameterId, rolloutId) {
               const parameter = requireTextParameter(parameters, parameterId)
@@ -878,11 +1057,7 @@ export default class ProofRunService extends Service {
               return (laneStateNodes.get(rolloutId) ?? []).slice(0, limit)
             },
             async inspectStateTransition(rolloutId, commit, maxCharacters) {
-              const lane = requireLane(rolloutId)
-              const nodes = laneStateNodes.get(rolloutId) ?? []
-              if (!nodes.some(node => node.commit === commit)) {
-                throw new Error(`commit is not a visible state node for ${rolloutId}`)
-              }
+              const lane = requireVisibleCommit(rolloutId, commit)
               const trace = laneTraces.get(rolloutId) ?? []
               const anchor = trace.findIndex(entry => entry.text.includes(commit))
               const start = anchor < 0 ? Math.max(0, trace.length - 8) : Math.max(0, anchor - 4)
@@ -897,6 +1072,41 @@ export default class ProofRunService extends Service {
                 ),
                 traceStart: start,
                 traceContext: trace.slice(start, start + 9),
+              }
+            },
+            async readStateFile(rolloutId, commit, path, maxCharacters) {
+              const lane = requireVisibleCommit(rolloutId, commit)
+              return {
+                rolloutId,
+                commit,
+                path,
+                content: await git.readStateFile(lane.worktree, commit, path, maxCharacters, record.controller.signal),
+              }
+            },
+            async compareStateFiles(
+              leftRolloutId,
+              leftCommit,
+              rightRolloutId,
+              rightCommit,
+              path,
+              maxCharacters,
+            ) {
+              const left = requireVisibleCommit(leftRolloutId, leftCommit)
+              requireVisibleCommit(rightRolloutId, rightCommit)
+              return {
+                leftRolloutId,
+                leftCommit,
+                rightRolloutId,
+                rightCommit,
+                path,
+                diff: await git.compareStateFile(
+                  left.worktree,
+                  leftCommit,
+                  rightCommit,
+                  path,
+                  maxCharacters,
+                  record.controller.signal,
+                ),
               }
             },
             async searchTrace(query, rolloutId, requestedLimit) {
@@ -914,7 +1124,7 @@ export default class ProofRunService extends Service {
                 .slice(0, limit)
             },
           },
-          softTokenBudget: record.snapshot.config.search.reflection.softTokenBudget,
+          maxSteps: record.snapshot.config.search.reflection.maxSteps,
         })
       },
     })
@@ -937,10 +1147,9 @@ export default class ProofRunService extends Service {
       }))
       await handle.agent.whenIdle()
       while (
-        capture?.plan() === undefined
+        capture?.decision() === undefined
         && lastTurnReason(handle.agent.session.events) === 'max-tokens'
-        && sessionTokens(handle.agent.session.events) <= record.snapshot.config.search.reflection.softTokenBudget
-          + record.snapshot.config.search.reflection.maxOutputTokensPerRequest
+        && sessionSteps(handle.agent.session.events) < record.snapshot.config.search.reflection.maxSteps
       ) {
         handle.agent.followup(createUserMessage({
           source: { kind: 'user' },
@@ -952,7 +1161,11 @@ export default class ProofRunService extends Service {
         await handle.agent.whenIdle()
       }
       this.accountSessionUsage(record, String(sessionId), sessionUsage(handle.agent.session.events))
-      return capture?.plan() ?? neutralParameterUpdatePlan(parameters)
+      return capture?.decision() ?? neutralOptimizationDecision({
+        parameters,
+        lanes: optimizationLanes,
+        eligibleStates,
+      })
     } finally {
       detach()
       record.handles.delete(handle)
@@ -964,98 +1177,50 @@ export default class ProofRunService extends Service {
 
   private async acceptFinalCandidate(
     record: RunRecord,
-    owner: Agent,
-    worktree: string,
+    candidateCommit: string,
     receipt: ProofReceipt,
+    loss: ProofLossReport,
   ): Promise<void> {
+    if (loss.verdict !== 'solved' || loss.candidateStatus !== 'VERIFIED') {
+      throw new Error(`cannot promote candidate rejected by loss provider ${loss.pluginId}: ${loss.summary}`)
+    }
+    if (
+      receipt.candidateCommit !== candidateCommit
+      || loss.candidateCommit !== candidateCommit
+      || !receipt.finalAccepted
+      || receipt.obligationsClosed !== receipt.obligationsTotal
+    ) {
+      throw new Error('configured loss did not certify the exact complete candidate commit')
+    }
     record.snapshot.finalReceipt = receipt
-    if (!record.snapshot.config.search.whiteboxReview) {
-      await this.promoteFinalCandidate(record, worktree, receipt)
-      await this.finalize(record, 'PROVED', 'Lean checker accepted the complete theorem; white-box review disabled by experiment config')
-      return
-    }
-    await this.transition(record, 'REVIEWING', 'running read-only white-box reward-hacking review')
-    const sessionId = SessionId(`${record.snapshot.runId}-final-review`)
-    let capture: ReturnType<ProofRoleService['installReviewer']> | undefined
-    const handle = await this.ctx.agents.create({
-      sessionId,
-      meta: {
-        cwd: worktree,
-        parentSession: owner.id,
-        origin: 'subagent',
-        delegationDepth: (owner.session.header.delegationDepth ?? 0) + 1,
-      },
-      agentOptions: {
-        provider: record.snapshot.config.search.provider,
-        model: record.snapshot.config.search.model,
-        maxTokens: record.snapshot.config.search.reflection.maxOutputTokensPerRequest,
-      },
-      signal: record.controller.signal,
-      setup: agentCtx => {
-        const agent = agentCtx.agent
-        if (agent === undefined) throw new Error('DSH did not associate the unpublished reviewer agent')
-        this.ctx.get('agentPresets')?.composeFrom(agentCtx, owner.ctx)
-        capture = this.roles.installReviewer(agentCtx, { agent, resolvedCase: record.resolvedCase, receipt })
-      },
-    })
-    record.handles.add(handle)
-    record.snapshot.activeSessionIds.push(String(sessionId))
-    await this.persist(record)
-    const detach = this.observer.attachSession(handle.agent, {
-      runId: record.snapshot.runId,
-      epoch: record.snapshot.epoch,
-      rolloutId: 'reviewer',
-      role: 'reviewer',
-    })
-    try {
-      handle.agent.followup(createUserMessage({
-        source: { kind: 'user' },
-        content: [{
-          type: 'text',
-          text: 'Inspect the checker-accepted Lean candidate for semantic reward hacking. Submit the final white-box review after reading the relevant proof and interfaces.',
-        }],
-      }))
-      await handle.agent.whenIdle()
-      this.accountSessionUsage(record, String(sessionId), sessionUsage(handle.agent.session.events))
-      const review: WhiteboxReview | undefined = capture?.review()
-      if (review !== undefined) record.snapshot.whiteboxReview = review
-      if (review?.approved === true) {
-        await this.promoteFinalCandidate(record, worktree, receipt)
-        await this.finalize(record, 'PROVED', 'Lean checker and white-box review accepted the complete theorem')
-      } else {
-        await this.finalize(record, 'UNKNOWN', review === undefined
-          ? 'checker passed but reviewer did not submit a valid assessment'
-          : `checker passed but white-box review vetoed the candidate: ${review.recommendation}`)
-      }
-    } finally {
-      detach()
-      record.handles.delete(handle)
-      record.snapshot.activeSessionIds = record.snapshot.activeSessionIds.filter(id => id !== String(sessionId))
-      await handle.dispose()
-      await this.persist(record)
-    }
+    if (loss.whitebox !== undefined) record.snapshot.whiteboxReview = loss.whitebox
+    await this.promoteFinalCandidate(record, candidateCommit, receipt)
+    await this.finalize(
+      record,
+      'PROVED',
+      `${loss.pluginId} accepted the complete immutable candidate commit`,
+    )
   }
 
   private async promoteFinalCandidate(
     record: RunRecord,
-    worktree: string,
+    candidateCommit: string,
     receipt: ProofReceipt,
   ): Promise<void> {
     if (!receipt.finalAccepted || receipt.obligationsClosed !== receipt.obligationsTotal) {
       throw new Error('cannot promote an incomplete Lean receipt as the trusted final candidate')
     }
-    const commit = await this.git.head(worktree, record.controller.signal)
-    record.snapshot.trustedCommit = commit
-    record.snapshot.searchBaseCommit = commit
+    record.snapshot.trustedCommit = candidateCommit
+    record.snapshot.searchBaseCommit = candidateCommit
     record.snapshot.trustedObligationsClosed = receipt.obligationsClosed
   }
 
-  private async disposeLanes(record: RunRecord, lanes: readonly LaneRuntime[]): Promise<void> {
+  private async disposeLanes(record: RunRecord, lanes: readonly LaneCandidateRuntime[]): Promise<void> {
     for (const lane of lanes) {
       lane.detachObserver()
       record.handles.delete(lane.handle)
       record.snapshot.activeSessionIds = record.snapshot.activeSessionIds.filter(
-        id => id !== lane.evidence.sessionId,
+        id => id !== lane.candidate.sessionId,
       )
       await lane.handle.dispose()
       if (!this.config.preserveWorktrees) {
@@ -1063,6 +1228,20 @@ export default class ProofRunService extends Service {
       }
     }
     await this.persist(record)
+  }
+
+  private async verifyExternalDependencies(resolvedCase: ResolvedCase): Promise<void> {
+    for (const dependency of resolvedCase.manifest.externalDependencies) {
+      const root = isAbsolute(dependency.root)
+        ? dependency.root
+        : resolve(resolvedCase.root, dependency.root)
+      const actual = await this.git.requireCleanCommit(root)
+      if (actual !== dependency.commit) {
+        throw new Error(
+          `external dependency ${dependency.name} is at ${actual}, expected ${dependency.commit}`,
+        )
+      }
+    }
   }
 
   private async disposeRemainingHandles(record: RunRecord): Promise<void> {
